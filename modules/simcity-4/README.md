@@ -7,6 +7,10 @@ This module records the first PortCellar compatibility investigation.
 **Runtime:** Wine Staging 11.10 with a MinGW-built SCGL artifact  
 **Status:** Experimental — scenario verified
 
+The scenario results below are historical manual observations of the recorded
+configuration, not a fresh verification of a PortCellar package. See the
+[investigation](docs/investigation.md) for attribution and outstanding checks.
+
 ## Verified
 
 - The game launches.

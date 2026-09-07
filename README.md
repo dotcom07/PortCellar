@@ -14,9 +14,8 @@ investigation notes. There is no turnkey player download yet.
 
 ## Start here
 
-- **SimCity 4 players and modders:** read the [first public release plan](docs/releases/simcity-4-first-public-release.md).
-  It describes the SCGL texture fix, the evidence still needed for publication,
-  and the limits of the reported test results.
+- **SimCity 4 players and modders:** start with the [SimCity 4 module](modules/simcity-4/).
+  It describes the SCGL texture fix, historical observations, and known limits.
 - **Developers:** read the [architecture and migration proposal](docs/architecture/portcellar-plan.md).
 - **Project background:** read the [original concept](PortCellar.md).
 

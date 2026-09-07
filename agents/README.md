@@ -4,8 +4,11 @@ This is the public operating guide for agents working on PortCellar. It contains
 instructions and proposed tool contracts, not private execution state. Start with
 the repository-root [AGENTS.md](../AGENTS.md).
 
-The execution interface below is a design target. It is not implemented in this
-planning workspace.
+The execution interface below is a design target. The imported CLI implements
+only part of it. In particular, managed execution locks and the structured tool
+contract are not implemented. Read the
+[foundation decisions](../docs/architecture/foundation-decisions.md) before
+extending modules or mutation operations.
 
 ## One investigation, one explicit target
 
@@ -74,8 +77,8 @@ A handoff must contain:
 
 Do not require another agent to read the entire conversation. Do not include
 passwords, account identifiers, raw environment dumps, or private absolute paths
-in a public handoff. Keep the detailed local record under `.portcellar/` when
-that ignored state directory is introduced.
+in a public handoff. Keep the detailed local record under the ignored
+`.portcellar/` directory.
 
 ## Discovery across agent tools
 

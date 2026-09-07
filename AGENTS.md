@@ -13,6 +13,9 @@ Read `README.md` for the human-facing project summary and `agents/README.md` for
 the investigation workflow. Read `docs/architecture/portcellar-plan.md` before
 changing architectural boundaries. The original `PortCellar.md` is retained as
 background; the later proposal explicitly identifies recommended revisions.
+The selected next implementation contracts are in
+`docs/architecture/foundation-decisions.md`. Their safety requirements are
+targets until implemented and tested; do not infer them from the agent guide.
 
 ## Working rules
 

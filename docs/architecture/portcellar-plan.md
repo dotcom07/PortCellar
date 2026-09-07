@@ -3,6 +3,10 @@
 Date: 2026-09-07. Status: foundation implemented; public release remains gated.
 Audience: maintainers and contributors.
 
+The later [foundation decisions](foundation-decisions.md) select the initial
+module contract, execution ownership, stage preservation, and Steam update
+policy. They take precedence over the corresponding recommendations here.
+
 ## Recommendation
 
 Rebrand and preserve the existing runtime. Import a reviewed, sanitized source
@@ -120,7 +124,7 @@ portcellar/
   Cargo.lock
   README.md
   AGENTS.md
-  LICENSE                         # requires an explicit licensing decision
+  LICENSE                         # MIT OR Apache-2.0; third-party terms retained
   THIRD_PARTY_NOTICES.md
   crates/
     portcellar-cli/
@@ -135,7 +139,7 @@ portcellar/
       README.md
       module.toml
       profiles/
-      modules/simcity-4/patches/scgl/
+      patches/scgl/
       tools/check-scgl-texture-abi.py
       tests/
       evidence/                   # selected, sanitized, reviewed records
@@ -464,12 +468,11 @@ manual setup steps, preserved saves, and a usable failure report. Count verified
 scenario/configuration pairs and reproduced regressions, not optimistic game
 badges or the number of agents launched.
 
-## Decisions still requiring the owner's choice
+## Owner decisions and remaining choices
 
-1. **First-party license and public attribution.** Choose the license and intended
-   public author identity before a source import/release; preserve third-party
-   obligations independently.
-2. **First release deliverable.** Recommend a reproducible SC4 source publication
+1. **First-party license and public attribution: selected.** MIT OR Apache-2.0,
+   with `dotcom07` as the public identity; preserve third-party obligations.
+2. **First release deliverable: selected.** Reproducible SC4 source publication
    first, followed by a player runtime package after clean-host validation.
 3. **Distribution identity.** Decide signing/notarization and binary hosting when
    the player package is ready; no paid service is needed for this planning work.

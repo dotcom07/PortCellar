@@ -50,3 +50,40 @@ The release path must separately record the SCGL source revision, compiler,
 CMake configuration, patch digest, Wine component versions, executable hash,
 and the exact launch and scenario observations. Do not turn one successful
 scenario into a general compatibility claim.
+
+## Source and license review
+
+On 2026-09-07, the aggregate patch passed `git apply --check` against a clean
+archive of SCGL commit `dc80faec59980da7436e792171e3ce55778f41cd`. The check
+used committed source only, excluding the original worktree's local changes.
+This proves source applicability, not build success or gameplay behavior.
+
+Patch SHA-256:
+`65060b6c374d1ef5550e4782145746ad327738d0500eab7412fc61b74b6b7721`.
+
+The patch changes 16 source/build files. The six texture entries are only one
+part: initialization, renderer capabilities, texture state, viewport/mode
+handling, buffer regions, and optional diagnostics also change. The isolated
+ABI correction has not been freshly tested as a standalone patch. Do not
+describe the aggregate as a six-line fix or use its result to certify the
+remaining SCGL ABI.
+
+Upstream source headers identify SCGL as LGPL-2.1-or-later, copyright (C) 2025
+Nelson Gomez (nsgomez). The original
+[license text](../patches/scgl/LICENSE) is retained unchanged; its SHA-256 is
+`415aa7cef0e664ae7ce0dd55300c09916449da57601b1053c63644f648bcfd90`.
+Preserve upstream copyright headers and identify PortCellar modifications and
+their dates in any distributed modified source. The repository's dual license
+does not relicense SCGL-derived code.
+
+Before shipping a DLL, include the applicable license/notices and complete
+corresponding modified source, build scripts, dependency versions and license
+material, and satisfy any relinking obligations introduced by linked libraries.
+Keep proprietary game files out of that source bundle. A source URL alone is
+not a complete binary distribution compliance record.
+
+Still needed: a recorded clean build/toolchain configuration, old/new DLL checks
+under normal and optimized Python, and fresh launch/region/tutorial observations
+for the exact output. The old DLL is currently unavailable in this workspace.
+Historical binary hashes do not prove this patch and an unspecified toolchain
+will reproduce those bytes. No new game session was run for this source review.
