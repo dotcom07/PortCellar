@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 #[cfg(unix)]
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 
 impl CommandPlan {
     pub fn display(&self) -> String {
@@ -52,7 +52,14 @@ pub fn run_plan(plan: &CommandPlan) -> Result<i32> {
     }
 
     let status = command.status()?;
-    Ok(status.code().unwrap_or_default())
+    status.code().ok_or_else(|| {
+        #[cfg(unix)]
+        if let Some(signal) = status.signal() {
+            return PortCellarError::Message(format!("command terminated by signal {signal}"));
+        }
+
+        PortCellarError::Message("command terminated without an exit code".to_string())
+    })
 }
 
 pub fn run_plan_detached(plan: &CommandPlan) -> Result<u32> {
@@ -111,4 +118,40 @@ pub(crate) fn shell_quote(value: &str) -> String {
     }
 
     format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_plan;
+    use crate::CommandPlan;
+    use std::collections::BTreeMap;
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+
+    fn shell_plan(script: &str) -> CommandPlan {
+        #[cfg(unix)]
+        let (program, prefix) = ("/bin/sh", "-c");
+        #[cfg(windows)]
+        let (program, prefix) = ("cmd.exe", "/C");
+
+        CommandPlan {
+            program: PathBuf::from(program),
+            args: vec![OsString::from(prefix), OsString::from(script)],
+            envs: BTreeMap::new(),
+            current_dir: None,
+        }
+    }
+
+    #[test]
+    fn run_plan_preserves_numeric_exit_codes() {
+        assert_eq!(run_plan(&shell_plan("exit 7")).unwrap(), 7);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_plan_rejects_signal_termination() {
+        let error = run_plan(&shell_plan("kill -TERM $$")).unwrap_err();
+
+        assert!(error.to_string().contains("signal 15"));
+    }
 }
