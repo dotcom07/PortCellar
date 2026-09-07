@@ -23,18 +23,19 @@ identifies an M4 Pro and macOS 26.6.2 (25G83), with translated x86-64 Wine.
 These identify a historical environment; they are not yet a complete,
 reconstructible runtime build manifest.
 
-The local SCGL base is commit
+The imported SCGL base refers to the pinned upstream revision
 `dc80faec59980da7436e792171e3ce55778f41cd` from
-[nsgomez/scgl](https://github.com/nsgomez/scgl). Its local modifications are stored
-in the legacy `modules/simcity-4/patches/scgl/simcity4-1.1.610-abi.patch`. The patch, checker, and
-investigation documents have not yet been imported into PortCellar.
+[nsgomez/scgl](https://github.com/nsgomez/scgl). Its modifications are stored in
+`modules/simcity-4/patches/scgl/simcity4-1.1.610-abi.patch`. The patch, checker,
+and investigation documents are imported into PortCellar. This does not imply
+that a buildable source checkout was initialized or freshly verified here.
 
 | Finding | Evidence class | Publication limit |
 | --- | --- | --- |
 | The game passes scalar mode `1` through byte offset `0x70` | Saved game disassembly and decoded driver table | Specific executable/build |
 | The old SCGL table places the pointer overload there | Old DLL symbol/table inspection | Specific MinGW DLL |
 | The saved fault dereferences address `0x1` in `glTexEnvfv_Exec` | Saved LLDB excerpt and SCGL forwarding code | Supports the affected dispatch failure |
-| Old DLL fails; corrected DLL passes the six-slot check in ordinary Python | [Dated checker verification below](#checker-verification-record-2026-09-07) | Current checker has an optimization flaw described below |
+| Historical old DLL failed; historical corrected DLL passed the six-slot check in ordinary Python | [Dated checker verification below](#checker-verification-record-2026-09-07) | Historical pre-import checker result; no fresh old/new DLL regression has been run with the imported checker |
 | Tutorial terrain was restored and the tutorial ran | Explicit user confirmation recorded in the investigation | Historical human observation, not automated visual verification |
 | Previous access violation was not reproduced after the correction | Historical investigation report | Not proof that no future crash is possible |
 | A diagnostics-enabled run failed during initialization | Historical investigation report | Exclude it from successful runtime results |
@@ -82,12 +83,12 @@ turn it into a universal claim about every MinGW/MSVC overload group.
 
 ### Two release blockers discovered during review
 
-**The checker can report a false pass.** The existing script uses Python
-`assert` for critical validation. With `python -O`, the old DLL reports PASS and
-exits zero. Replace critical assertions with explicit validation/failure paths,
-and test both interpreter modes with known old/new artifacts before using it as
-a release gate. Document the PE32/i386, retained-symbol, MinGW symbol-name, and
-vtable-address-point assumptions. Unsupported/stripped inputs must fail clearly.
+**The checker defect is fixed in the imported script.** Critical validation uses
+explicit errors, so Python optimization cannot remove the checks. The script
+still needs a fresh old/new DLL regression under normal and optimized Python
+before it becomes a release gate. Document the PE32/i386, retained-symbol,
+MinGW symbol-name, and vtable-address-point assumptions. Unsupported/stripped
+inputs must fail clearly.
 
 **The aggregate patch is larger than the headline fix.** It also includes earlier
 1.1.610 interface changes, legacy context/mode handling, buffer-region behavior,
@@ -128,10 +129,12 @@ env -u PYTHONOPTIMIZE python3 -B -O modules/simcity-4/tools/check-scgl-texture-a
 | Old DLL | Exit 1: mismatch at `0x6c` | Exit 0: incorrect PASS |
 | Corrected DLL | Exit 0: PASS | Exit 0: PASS |
 
-The old ordinary run reports `AssertionError` for the color overload at `0x6c`.
-The other three runs print `PASS: all six SimCity 4 1.1.610 texture ABI slots match`.
-These are observations of the current checker defect, not acceptance of it as a
-release verifier. Rebuildable public old/new inputs remain a milestone A gate.
+The old ordinary run reported `AssertionError` for the color overload at `0x6c`.
+The other three runs printed `PASS: all six SimCity 4 1.1.610 texture ABI slots match`.
+These are dated observations of the pre-import checker defect, not current
+verification. The imported script's normal and optimized no-argument checks pass
+as argument-validation checks; rebuildable public old/new inputs remain a
+milestone A gate.
 
 ## What the public module should contain
 
@@ -140,7 +143,7 @@ modules/simcity-4/
   README.md
   module.toml
   profiles/
-  modules/simcity-4/patches/scgl/
+  patches/scgl/
   tools/check-scgl-texture-abi.py
   tests/
   evidence/
@@ -154,9 +157,11 @@ The module README must provide two clear paths:
 - **Developers:** root cause, slot table, source baseline/patches, compiler and
   CMake settings, old/new binary checks, and scenario reproduction.
 
-The module descriptor is not a copy of a private runtime profile. It identifies
-the game/variant, public artifacts, scenarios, and profile references. The user's
-game path, engine location, and prefix are resolved privately.
+The current v1 module descriptor is not a copy of a private runtime profile. It
+identifies module identity, variants, store metadata, and profile references.
+Executable artifacts and scenarios belong to a future execution and evidence
+contract. The user's game path, engine location, and prefix are resolved
+privately.
 
 The tested SCGL plugin is staged at `Plugins/SCGL.dll`. Do not substitute the
 historical `SimGLRef.dll` name as the injection destination. Verify the selected
@@ -306,11 +311,14 @@ technical finding; they are prerequisites for expanding its compatibility claims
 
 ## Evidence provenance and limits of this review
 
-This plan was checked against the legacy SCGL source, patch, binary checker,
-saved LLDB/disassembly excerpts, build metadata, and investigation notes. The
-binary checker was exercised against the available old and corrected DLLs; no
-gameplay was rerun. Raw local diagnostics remain private, and the review did
-not create a distributable runtime or complete a license compliance audit.
+The original review checked the legacy SCGL source, patch, binary checker, saved
+LLDB/disassembly excerpts, build metadata, and investigation notes. This turn
+reconciled the documentation and checked the current source and no-argument
+checker behavior; it did not newly examine private LLDB or game data. The binary
+checker was historically exercised against the available old and corrected DLLs
+using the pre-import checker; no gameplay was rerun. Raw local diagnostics remain
+private, and the review did not create a distributable runtime or complete a
+license compliance audit.
 
 SCGL declares [LGPL-2.1-or-later](https://github.com/nsgomez/scgl), including
 requirements for modified source. Its README identifies gzcom-dll as Expat and

@@ -29,50 +29,51 @@ and immediate crate split. It preserves the original document as background.
 
 ## What actually exists
 
-The local PortCellar directory contained only `PortCellar.md` at inspection and
-was not a Git checkout. GitHub's public repository API returned an empty public
-PortCellar repository (`size: 0`). No visibility setting was changed. [S1]
+The current repository is the imported PortCellar foundation at baseline
+`0fb07a1`. It contains the two crates, a read-only module catalog, the SimCity 4
+and Isaac descriptors, the imported SCGL source patch and checker, and foundation
+CI. The catalog validates descriptors and referenced profiles; it does not
+install or launch a module.
 
-The inspected lite-crossover worktree was based on commit
-`71a5d09ab9491bfbff23a07e387a88273229d3c2`, with staged, unstaged, untracked, and
-modified upstream content. The commit alone does not identify the working system.
-In particular, runtime staging and SCGL work include untracked files.
-
-The paths below refer to the inspected legacy worktree, not files already
-imported into PortCellar.
+The following older observations describe the source review that preceded the
+import. They are retained as dated provenance, not as the current file inventory.
+The local PortCellar directory then contained only `PortCellar.md`, was not a Git
+checkout, and the inspected lite-crossover worktree was based on commit
+`71a5d09ab9491bfbff23a07e387a88273229d3c2` with staged, unstaged, untracked, and
+modified upstream content. The commit alone did not identify the full working
+system. No visibility setting was changed. [S1]
 
 | Existing implementation | Preserve and extend |
 | --- | --- |
-| `crates/lite-cli`, `crates/lite-core` | A real two-crate workspace, with tests and a small dependency set (`serde`, `toml`) |
-| `src/games/generic.rs`, `games/catalog.rs` | TOML profiles and a catalog; evolve these rather than build a parallel module loader |
-| `src/analyze/{pe,discovery,local,steam_client}.rs` | Executable analysis, local-game discovery, and Steam/CEF diagnostics |
-| `src/runtime/{launch,profile,preflight,dependencies}.rs` | Launch/configuration plans, prerequisite checks, snapshots, and rollback |
-| `src/runtime/{observe,session,steam_cef}.rs` | Live Steam state, process cleanup, and WebHelper preparation |
-| `src/runtime/stage.rs` | Copying a standalone installation before injecting artifacts or applying the LAA change |
-| `src/runtime/smoke.rs` | Structured compatibility records and local history; currently much narrower than scenario evidence |
+| `crates/portcellar-cli`, `crates/portcellar-core` | The current two-crate workspace, with tests and a small dependency set (`serde`, `toml`) |
+| `crates/portcellar-core/src/games/module.rs` and existing profile code | Read-only TOML module descriptors/catalog plus legacy profile loading |
+| `crates/portcellar-core/src/analyze/` | Executable analysis, local-game discovery, and Steam/CEF diagnostics |
+| `crates/portcellar-core/src/runtime/` | Launch/configuration plans, prerequisite checks, staging, snapshots, rollback, and Steam helpers |
+| `modules/simcity-4/` | Imported module README, descriptor, portable profile, aggregate SCGL patch, checker, and investigation record |
 
 Game-specific constants and wrappers remain in `anchors.rs`, `games/isaac.rs`,
 public exports, and CLI paths. Some shared Steam operations still route through
 Isaac-centric discovery. These must be traced through callers before migration.
 
-Observed gaps that affect the architecture:
+The imported implementation has closed the signal-outcome, planning-purity,
+conservative-stage-preservation, strict-catalog, and foundation-CI gaps. The
+remaining gaps that affect the architecture are:
 
 - `GenericGameProfileDocument.app_id` and catalog uniqueness conflate a generic
   identifier with a Steam identifier; local analysis already creates local IDs.
-- `game_launch_plan()` calls the staging path with materialization enabled. A
-  function named "plan" is therefore not always read-only today.
-- Staging currently requires a non-Steam profile with runtime artifacts. The SCGL
-  preflight explicitly rejects Steam integration. A standalone SC4 result must
-  not become a claim about Steam SC4.
-- Staging refresh removes the previous staged game before copying its replacement.
-  Saves or user changes inside that directory need an explicit preservation policy.
-- Stage fingerprints use FNV-style hashing for cache reuse; they are not release
-  integrity hashes. Public runtime/game/patch artifacts need SHA-256 identities.
+- The current descriptor contains identity, variants, store metadata, and profile
+  references only. Executable artifacts and scenarios remain a future execution
+  and evidence contract.
+- The SC4 profile is standalone and the SCGL preflight rejects Steam integration.
+  The imported result must not become a claim about Steam SC4.
+- Managed installation ownership, resource locking, supervised lifetime,
+  replacement journals/save reconciliation, and Steam fingerprint invalidation
+  remain unimplemented.
+- Stage fingerprints are cache keys, not release integrity hashes. Public
+  runtime/game/patch artifacts need SHA-256 identities.
 - The evidence history chooses a free filename and then writes it; this does not
   establish safe concurrent writing. Prefix mutation checks also need locking,
   rather than relying only on a preflight observation of stopped processes.
-- `command.rs::run_plan` maps an unavailable numeric exit code to zero. Signal
-  termination must remain a failure/interruption in the future execution contract.
 - Project-root discovery requires both `Cargo.toml` and an existing `.portcellar/`
   directory. Replace that assumption deliberately; renaming only the directory
   would change discovery behavior, and an installed CLI needs its own state root.
@@ -82,7 +83,8 @@ Observed gaps that affect the architecture:
 - The backend matrix has policy labels such as `Verified`; these are not game
   scenario verification. Keep backend eligibility separate from measured claims.
 
-These are source-level findings, not fixes or newly executed gameplay tests.
+These are implementation and source-level findings; they do not establish fresh
+gameplay compatibility.
 
 ## Options and the first useful architecture
 
@@ -201,10 +203,12 @@ where a user acquired the files. An import of `steam_api.dll` is evidence of a
 dependency; it does not determine ownership, authenticate a user, or authorize
 bypassing that dependency.
 
-A module declares known variants, executable selection, runtime requirements,
-profile references, artifacts, scenarios, and known limitations. A profile holds
-configuration for one route. Local installation paths, engine paths, account
-state, and user overrides live in private installation bindings.
+A future execution-capable module will declare known variants, executable
+selection, runtime requirements, artifacts, scenarios, and known limitations.
+The current v1 descriptor declares only identity, variants, store metadata, and
+profile references. A profile holds configuration for one route. Local
+installation paths, engine paths, account state, and user overrides live in
+private installation bindings.
 
 Use TOML for authored module/profile configuration and JSON for command results
 and evidence interchange. JSON Schema validates the parsed TOML data model; it
@@ -446,7 +450,7 @@ Classify blocked authentication/anti-cheat routes honestly. [S11]
 | --- | --- | --- |
 | 0. Preserve and inventory | Private snapshot manifest; public allowlist; licensing decision | Every imported change, submodule diff, and file has a known origin; old worktree remains intact |
 | 1. Rebrand the runtime | Existing two crates imported as CLI/core; neutral paths/env/config; human README | Existing Rust checks pass on the import; help works; synthetic home with spaces/Unicode works; dry-run writes nothing |
-| 2. First real module | SC4 profile, patch, checker, pinned inputs, scenarios, English investigation | Old DLL fails and new DLL passes the bounded ABI checker; exact gameplay scenario is re-observed and attributed |
+| 2. First real module | Imported SC4 profile, patch, checker, and English investigation | Fresh old/new DLL regression and exact gameplay scenario are still required and must be attributed |
 | 3. Safe repeatable execution | Installation bindings, state ownership, plan/execute separation, durable evidence | Interrupted stage/update preserves originals and saves; concurrent mutation is rejected; signals/timeouts cannot pass |
 | 4. Player package | CLI/runtime/module assets and source compliance material | Clean-host install, launch, update/rollback, checksums, and package inventory pass without developer tools |
 | 5. Steam maintenance | Shared Steam policy, current-client smoke suite, one reviewed Steam game module | Client update changes eligibility; login and owned shutdown work; game smoke rechecks run against the new client |
@@ -485,11 +489,12 @@ They do not authorize a visibility change, history rewrite, upload, or community
 Primary sources were retrieved on 2026-09-07. Live documentation may change;
 capture revisions for sources used in a release build. This review traced the
 existing code and publication material; it did not build the whole runtime or
-rerun any game. The separate SCGL binary audit and coordinating reviewer did
-exercise the existing SCGL checker on local old/new DLLs:
-normal execution distinguishes them, while optimized Python incorrectly passes
-the old DLL. See the [dated checker record](../releases/simcity-4-first-public-release.md#checker-verification-record-2026-09-07)
-and SC4 release blockers.
+rerun any game. The historical SCGL binary audit exercised the pre-import
+checker on local old/new DLLs: normal execution distinguished them, while
+optimized Python incorrectly passed the old DLL. The imported checker now uses
+explicit errors; no fresh old/new DLL regression has been run with it. See the
+[dated checker record](../releases/simcity-4-first-public-release.md#checker-verification-record-2026-09-07)
+and SC4 release gates.
 
 | ID | Source | What it supports |
 | --- | --- | --- |

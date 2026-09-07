@@ -1,7 +1,8 @@
 # Foundation decisions
 
-Date: 2026-09-07. Status: selected implementation direction, not implemented
-runtime guarantees. Reviewed against foundation commit `45da0cd`.
+Date: 2026-09-07. Status: selected direction with partial foundation
+implementation; managed runtime guarantees are not implemented. Current baseline
+`0fb07a1`; design history was reviewed against foundation commit `45da0cd`.
 This document refines the [architecture proposal](portcellar-plan.md) where
 specified below. The two existing crates remain the implementation boundary.
 

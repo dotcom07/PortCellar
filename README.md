@@ -16,6 +16,7 @@ There is no turnkey player download yet.
 
 - **Browse games:** find game-specific instructions and investigation records in
   the [game catalog](modules/README.md).
+- **Project direction:** see the [engineering and growth roadmap](docs/roadmap.md).
 - **Developers:** read the [architecture and migration proposal](docs/architecture/portcellar-plan.md).
 - **Windows Steam:** read the [shared client guide](components/steam/).
 - **Project background:** read the [original concept](PortCellar.md).
