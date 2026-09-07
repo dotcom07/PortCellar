@@ -1,0 +1,24 @@
+[submodule "upstreams/FAudio"]
+	path = upstreams/FAudio
+	url = https://github.com/FNA-XNA/FAudio.git
+[submodule "upstreams/MoltenVK"]
+	path = upstreams/MoltenVK
+	url = https://github.com/KhronosGroup/MoltenVK.git
+[submodule "upstreams/dxvk"]
+	path = upstreams/dxvk
+	url = https://github.com/doitsujin/dxvk.git
+[submodule "upstreams/gstreamer"]
+	path = upstreams/gstreamer
+	url = https://gitlab.freedesktop.org/gstreamer/gstreamer.git
+[submodule "upstreams/macports-wine"]
+	path = upstreams/macports-wine
+	url = https://github.com/Gcenx/macports-wine.git
+[submodule "upstreams/vkd3d"]
+	path = upstreams/vkd3d
+	url = https://gitlab.winehq.org/wine/vkd3d.git
+[submodule "upstreams/wine"]
+	path = upstreams/wine
+	url = https://github.com/wine-mirror/wine.git
+[submodule "upstreams/scgl"]
+	path = upstreams/scgl
+	url = https://github.com/nsgomez/scgl.git

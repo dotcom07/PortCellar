@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PortCellar <noreply@example.invalid>
+Date: Mon, 6 Jul 2026 00:00:00 +0900
+Subject: [PATCH] winemac.drv: Disable immovable windows for Steam by default.
+
+Steam CEF login windows can report sentinel/offscreen coordinates on macOS
+Wine builds. The PortCellar runtime handles this with the
+AllowImmovableWindows registry setting first. This patch is the narrower
+engine-side fallback: make Steam and Steam Web Helper default to movable
+window remapping while preserving explicit registry overrides.
+---
+ dlls/winemac.drv/macdrv_main.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/dlls/winemac.drv/macdrv_main.c b/dlls/winemac.drv/macdrv_main.c
+index 9616824..c4834bb 100644
+--- a/dlls/winemac.drv/macdrv_main.c
++++ b/dlls/winemac.drv/macdrv_main.c
+@@ -279,6 +279,9 @@ static inline DWORD get_config_key(HKEY defkey, HKEY appkey, const char *name,
+ static void setup_options(void)
+ {
+     static const WCHAR macdriverW[] = {'\\','M','a','c',' ','D','r','i','v','e','r',0};
++    static const WCHAR steam_exeW[] = {'s','t','e','a','m','.','e','x','e',0};
++    static const WCHAR steamwebhelper_exeW[] =
++        {'s','t','e','a','m','w','e','b','h','e','l','p','e','r','.','e','x','e',0};
+     WCHAR buffer[MAX_PATH + 16], *p, *appname;
+     HKEY hkey, appkey = 0;
+     DWORD len;
+@@ -306,6 +309,9 @@ static void setup_options(void)
+         }
+     }
+ 
++    if (!wcsicmp(appname, steam_exeW) || !wcsicmp(appname, steamwebhelper_exeW))
++        allow_immovable_windows = false;
++
+     if (!get_config_key(hkey, appkey, "WindowsFloatWhenInactive", buffer, sizeof(buffer)))
+     {
+         static const WCHAR noneW[] = {'n','o','n','e',0};
+-- 
+2.50.0

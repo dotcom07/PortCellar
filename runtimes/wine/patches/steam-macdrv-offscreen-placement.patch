@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PortCellar <noreply@example.invalid>
+Date: Mon, 6 Jul 2026 00:00:00 +0900
+Subject: [PATCH] winemac.drv: Recenter fully offscreen small windows.
+
+Steam CEF login windows can request sentinel coordinates far outside the
+visible desktop, then later become visible without ever crossing a macOS
+screen. The existing bounds clamp keeps Cocoa inside documented coordinate
+limits, but a clamped x/y of 16000 can still be invisible on normal desktop
+sizes.
+
+When a small window does not intersect the desktop at all, move it near the
+desktop origin. This preserves large/fullscreen behavior and only handles the
+fully offscreen small-window case.
+---
+ dlls/winemac.drv/window.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/dlls/winemac.drv/window.c b/dlls/winemac.drv/window.c
+index 54aa928..a6023c9 100644
+--- a/dlls/winemac.drv/window.c
++++ b/dlls/winemac.drv/window.c
+@@ -246,6 +246,14 @@ static void constrain_window_frame(CGRect* frame)
+     if (frame->origin.y > 16000) frame->origin.y = 16000;
+     if (frame->size.width > max_width) frame->size.width = max_width;
+     if (frame->size.height > max_height) frame->size.height = max_height;
++
++    if (!CGRectIntersectsRect(*frame, desktop_rect) &&
++        frame->size.width <= CGRectGetWidth(desktop_rect) &&
++        frame->size.height <= CGRectGetHeight(desktop_rect))
++    {
++        frame->origin.x = CGRectGetMinX(desktop_rect) + 64;
++        frame->origin.y = CGRectGetMinY(desktop_rect) + 64;
++    }
+ }
+ 
+ 
+-- 
+2.50.0

@@ -1,0 +1,11 @@
+format_version = "game-profile-v1"
+app_id = "simcity-4-windows-1.1.610"
+name = "SimCity 4 Deluxe 1.1.610"
+bottle_name = "simcity-4-1-1-610"
+windows_exe = "SimCity 4.exe"
+runtime_profile_version = "simcity-4-windows-1.1.610-v1"
+wine_windows_version = "win10"
+graphics_backend = "scgl"
+steam_integration = "none"
+capabilities = ["open-gl"]
+dependencies = []

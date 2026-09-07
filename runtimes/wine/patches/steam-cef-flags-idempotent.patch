@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PortCellar <noreply@example.invalid>
+Date: Mon, 6 Jul 2026 00:00:00 +0900
+Subject: [PATCH] kernelbase: Avoid duplicate Steam CEF compatibility flags.
+
+CrossOver/GPTK-style macOS Wine engines inject Steam CEF compatibility flags
+for steam.exe and steamwebhelper.exe. PortCellar also passes the Steam
+level flags at launch time so stock Wine can benefit from the same behavior.
+
+Make the engine-side hack idempotent: keep the compatibility behavior, but do
+not append duplicate flags when the runtime already supplied them.
+---
+ dlls/kernelbase/process.c | 22 +++++++++++++++-------
+ 1 file changed, 15 insertions(+), 7 deletions(-)
+
+diff --git a/dlls/kernelbase/process.c b/dlls/kernelbase/process.c
+index 84642db..fd5ee67 100644
+--- a/dlls/kernelbase/process.c
++++ b/dlls/kernelbase/process.c
+@@ -512,7 +512,10 @@ static WCHAR * hack_steam_exe(const WCHAR *tidy_cmdline, WCHAR *steam_dir)
+          '\\','F','o','r','c','e','B','e','t','a',0};
+ 
+     LPWSTR new_command_line;
++
++    if (wcsstr(tidy_cmdline, allosarchesW) && wcsstr(tidy_cmdline, cefforce32bitW))
++        return NULL;
+ 
+     new_command_line = RtlAllocateHeap(GetProcessHeap(), 0,
+         sizeof(WCHAR) * (lstrlenW(tidy_cmdline) + lstrlenW(allosarchesW) + lstrlenW(cefforce32bitW) + 1));
+ 
+@@ -519,8 +522,10 @@ static WCHAR * hack_steam_exe(const WCHAR *tidy_cmdline, WCHAR *steam_dir)
+     if (!new_command_line) return NULL;
+ 
+     wcscpy(new_command_line, tidy_cmdline);
+-    lstrcatW(new_command_line, allosarchesW);
+-    lstrcatW(new_command_line, cefforce32bitW);
++    if (!wcsstr(tidy_cmdline, allosarchesW))
++        lstrcatW(new_command_line, allosarchesW);
++    if (!wcsstr(tidy_cmdline, cefforce32bitW))
++        lstrcatW(new_command_line, cefforce32bitW);
+ 
+     res = RegOpenKeyExW(HKEY_CURRENT_USER, enable_keyW, 0, KEY_READ, &key);
+     if (res == ERROR_SUCCESS)
+@@ -648,8 +653,10 @@ BOOL WINAPI DECLSPEC_HOTPATCH CreateProcessInternalW( HANDLE token, const WCHAR
+             if (!new_command_line) return FALSE;
+ 
+             wcscpy(new_command_line, tidy_cmdline);
+-            lstrcatW(new_command_line, nosandboxW);
+-            lstrcatW(new_command_line, inprocessgpuW);
++            if (!wcsstr(tidy_cmdline, nosandboxW))
++                lstrcatW(new_command_line, nosandboxW);
++            if (!wcsstr(tidy_cmdline, inprocessgpuW))
++                lstrcatW(new_command_line, inprocessgpuW);
+ 
+             if ((wcsstr(app_name, rundll32W) && wcsstr(tidy_cmdline, nosandboxW))
+                     || wcsstr(app_name, qwSubprocessW))
+@@ -662,7 +669,7 @@ BOOL WINAPI DECLSPEC_HOTPATCH CreateProcessInternalW( HANDLE token, const WCHAR
+                 lstrcatW(new_command_line, angleglW);
+             }
+ 
+-            if (wcsstr(app_name, steamwebhelperexeW))
++            if (wcsstr(app_name, steamwebhelperexeW) && !wcsstr(tidy_cmdline, disablegpuW))
+             {
+                 lstrcatW(new_command_line, disablegpuW);
+             }
+-- 
+2.50.0

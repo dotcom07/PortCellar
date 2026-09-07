@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "crates/portcellar-cli",
+    "crates/portcellar-core",
+]
+resolver = "2"

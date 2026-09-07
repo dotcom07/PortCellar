@@ -1,0 +1,1806 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 9cb62be..c332baf 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -16,6 +16,10 @@ set(CMAKE_SYSTEM_PROCESSOR "x86")
+ cmake_minimum_required(VERSION 3.22)
+ project(SCGL LANGUAGES C CXX)
+ 
++option(SCGL_DIAGNOSTICS "Write SCGL initialization diagnostics to C:\\temp" OFF)
++option(SCGL_STATIC_RUNTIME "Statically link MinGW libgcc/libstdc++ into SCGL.dll" ON)
++option(SCGL_SIMCITY4_610_ABI "Use the SimCity 4 1.1.610 cIGZGDriver ABI" ON)
++
+ if(NOT CMAKE_HOST_WIN32 AND NOT CMAKE_CROSSCOMPILING)
+ 	message(FATAL_ERROR "SCGL targets SimCity 4, a 32-bit Windows application, and must be cross-compiled.")
+ endif()
+@@ -65,5 +69,17 @@ target_compile_definitions(SCGL PRIVATE
+                            $<$<AND:$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>>,$<CONFIG:Debug>>:__FUNCSIG__=__PRETTY_FUNCTION__>
+ )
+ 
++if(SCGL_DIAGNOSTICS)
++	target_compile_definitions(SCGL PRIVATE SCGL_DIAGNOSTICS)
++endif()
++
++if(SCGL_SIMCITY4_610_ABI)
++	target_compile_definitions(SCGL PRIVATE SCGL_SIMCITY4_610_ABI)
++endif()
++
++if(SCGL_STATIC_RUNTIME AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
++	target_link_options(SCGL PRIVATE -static -static-libgcc -static-libstdc++)
++endif()
++
+ # Should come with MinGW
+ target_link_libraries(SCGL opengl32.lib)
+diff --git a/scgl/Diagnostics.h b/scgl/Diagnostics.h
+new file mode 100644
+index 0000000..ec02d18
+--- /dev/null
++++ b/scgl/Diagnostics.h
+@@ -0,0 +1,28 @@
++#pragma once
++
++#ifdef SCGL_DIAGNOSTICS
++#include <windows.h>
++#include <cstdarg>
++#include <cstdio>
++
++static void scgl_log(const char* format, ...) {
++	static FILE* file = nullptr;
++	if (file == nullptr) {
++		CreateDirectoryA("C:\\temp", nullptr);
++		file = fopen("C:\\temp\\scgl-init.log", "a");
++	}
++	if (file == nullptr) return;
++
++	va_list args;
++	va_start(args, format);
++	vfprintf(file, format, args);
++	va_end(args);
++	fputc('\n', file);
++	fflush(file);
++}
++#define SCGL_LOG(...) scgl_log(__VA_ARGS__)
++#define SCGL_GL_ERROR(label) do { unsigned int error = static_cast<unsigned int>(glGetError()); if (error != 0) SCGL_LOG("gl-error call=%s code=%u", label, error); } while (0)
++#else
++#define SCGL_LOG(...) ((void)0)
++#define SCGL_GL_ERROR(label) ((void)0)
++#endif
+diff --git a/scgl/GLShareableState.h b/scgl/GLShareableState.h
+index 1047bf7..c77754d 100644
+--- a/scgl/GLShareableState.h
++++ b/scgl/GLShareableState.h
+@@ -29,6 +29,7 @@ public:
+ 	uint32_t interleavedFormat;
+ 	uint32_t interleavedStride;
+ 	void const* interleavedPointer;
++	GLint colorArraySize;
+ 	uint8_t activeMatrixMode;
+ 	uint8_t glActiveTextureUnit;
+-};
+\ No newline at end of file
++};
+diff --git a/scgl/GLStateManager.cpp b/scgl/GLStateManager.cpp
+index 7c3613d..ec4eac8 100644
+--- a/scgl/GLStateManager.cpp
++++ b/scgl/GLStateManager.cpp
+@@ -17,6 +17,8 @@
+  */
+ 
+ #include <cassert>
++#include <cstring>
++#include "Diagnostics.h"
+ #include "GLStateManager.h"
+ #include "VertexFormatUtils.h"
+ 
+@@ -44,6 +46,7 @@ GLShareableState::GLShareableState() :
+ 	interleavedFormat(-1),
+ 	interleavedStride(0),
+ 	interleavedPointer(nullptr),
++	colorArraySize(4),
+ 	activeMatrixMode(0), // GL_MODELVIEW
+ 	glActiveTextureUnit(0)
+ {
+@@ -95,9 +98,13 @@ void GLStateManager::ApplyTextureStages() {
+ 
+ 		if (textureUnits[i].IsEnabled() && textureUnits[i].needsTextureParamRefresh) {
+ 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, textureParameters[0]);
++			SCGL_GL_ERROR("ApplyTextureStages.mag-filter");
+ 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, textureParameters[1]);
++			SCGL_GL_ERROR("ApplyTextureStages.min-filter");
+ 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, textureParameters[2]);
++			SCGL_GL_ERROR("ApplyTextureStages.wrap-s");
+ 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, textureParameters[3]);
++			SCGL_GL_ERROR("ApplyTextureStages.wrap-t");
+ 
+ 			textureUnits[i].needsTextureParamRefresh = false;
+ 		}
+@@ -110,6 +117,82 @@ void GLStateManager::DrawArrays(GLenum gdMode, GLint first, GLsizei count) {
+ 	GLenum mode = drawModeMap[gdMode];
+ 
+ 	ApplyTextureStages();
++	#ifdef SCGL_DIAGNOSTICS
++	static int drawDiagnostics = 0;
++	if (drawDiagnostics++ < 12) {
++		GLfloat modelView[16]{};
++		GLfloat projection[16]{};
++		GLint viewport[4]{};
++		GLint drawBuffer = 0;
++		GLint readBuffer = 0;
++		GLint activeTexture = 0;
++		GLint boundTexture = 0;
++		GLint textureEnvMode = 0;
++		GLint blendSource = 0;
++		GLint blendDestination = 0;
++		GLboolean vertexArray = GL_FALSE;
++		GLboolean colorArray = GL_FALSE;
++		GLboolean textureArray = GL_FALSE;
++		GLboolean texture2D = GL_FALSE;
++		GLboolean blend = GL_FALSE;
++		GLboolean alphaTest = GL_FALSE;
++		GLboolean lighting = GL_FALSE;
++		GLboolean colorMaterial = GL_FALSE;
++		glGetFloatv(GL_MODELVIEW_MATRIX, modelView);
++		glGetFloatv(GL_PROJECTION_MATRIX, projection);
++		glGetIntegerv(GL_VIEWPORT, viewport);
++		glGetIntegerv(GL_DRAW_BUFFER, &drawBuffer);
++		glGetIntegerv(GL_READ_BUFFER, &readBuffer);
++		glGetBooleanv(GL_VERTEX_ARRAY, &vertexArray);
++		glGetBooleanv(GL_COLOR_ARRAY, &colorArray);
++		glGetBooleanv(GL_TEXTURE_COORD_ARRAY, &textureArray);
++		glGetBooleanv(GL_TEXTURE_2D, &texture2D);
++		glGetBooleanv(GL_BLEND, &blend);
++		glGetBooleanv(GL_ALPHA_TEST, &alphaTest);
++		glGetBooleanv(GL_LIGHTING, &lighting);
++		glGetBooleanv(GL_COLOR_MATERIAL, &colorMaterial);
++		activeTexture = GL_TEXTURE0 + shareable.glActiveTextureUnit;
++		glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTexture);
++		glGetTexEnviv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, &textureEnvMode);
++		glGetIntegerv(GL_BLEND_SRC, &blendSource);
++		glGetIntegerv(GL_BLEND_DST, &blendDestination);
++		SCGL_LOG("draw-state index=%d gl_mode=%u viewport=%d,%d,%d,%d draw=%d read=%d arrays=%d,%d,%d tex2d=%d lighting=%d material=%d mv=%g,%g,%g,%g proj=%g,%g,%g,%g",
++			drawDiagnostics - 1, mode, viewport[0], viewport[1], viewport[2], viewport[3], drawBuffer, readBuffer,
++			vertexArray, colorArray, textureArray, texture2D, lighting, colorMaterial,
++			modelView[0], modelView[5], modelView[10], modelView[15],
++			projection[0], projection[5], projection[10], projection[15]);
++		SCGL_LOG("draw-texture-state index=%d active=%d bound=%d enabled=%d env=%d blend=%d alpha_test=%d blend_func=%d,%d",
++			drawDiagnostics - 1, activeTexture, boundTexture, texture2D, textureEnvMode, blend, alphaTest,
++			blendSource, blendDestination);
++	}
++	#endif
++	#ifdef SCGL_DIAGNOSTICS
++	static int texturedDrawDiagnostics = 0;
++	if (texturedDrawDiagnostics < 256) {
++		GLboolean textured = GL_FALSE;
++		GLboolean blended = GL_FALSE;
++		GLboolean alphaTest = GL_FALSE;
++		GLboolean textureArray = GL_FALSE;
++		GLint boundTexture = 0;
++		GLint textureEnvMode = 0;
++		GLint blendSource = 0;
++		GLint blendDestination = 0;
++		glGetBooleanv(GL_TEXTURE_2D, &textured);
++		glGetBooleanv(GL_BLEND, &blended);
++		glGetBooleanv(GL_ALPHA_TEST, &alphaTest);
++		glGetBooleanv(GL_TEXTURE_COORD_ARRAY, &textureArray);
++		if (textured) {
++			glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundTexture);
++			glGetTexEnviv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, &textureEnvMode);
++			glGetIntegerv(GL_BLEND_SRC, &blendSource);
++			glGetIntegerv(GL_BLEND_DST, &blendDestination);
++			SCGL_LOG("textured-draw index=%d mode=%u count=%d active=%u bound=%d tex_array=%d env=%d blend=%d alpha_test=%d blend_func=%d,%d",
++				texturedDrawDiagnostics, mode, count, shareable.glActiveTextureUnit, boundTexture,
++				textureArray, textureEnvMode, blended, alphaTest, blendSource, blendDestination);
++			++texturedDrawDiagnostics;
++		}
++	}
++	#endif
+ 	glDrawArrays(mode, first, count);
+ }
+ 
+@@ -167,13 +250,31 @@ void GLStateManager::InterleavedArrays(GLenum format, GLsizei stride, void const
+ 	}
+ 
+ 	if (colorArrayEnabled) {
+-		// GPU must implement GL_ARB_vertex_array_bgra or GL_EXT_vertex_array_bgra for this to work.
+-		// These extensions did not exist when SimCity 4 was released, so their workaround was to
+-		// use the CPU to swap the order of color components. That's slow - let's never do that.
+-		glColorPointer(GL_BGRA, GL_UNSIGNED_BYTE, stride, reinterpret_cast<uint8_t const*>(pointer) + colorOffset);
++		glColorPointer(shareable.colorArraySize, GL_UNSIGNED_BYTE, stride, reinterpret_cast<uint8_t const*>(pointer) + colorOffset);
+ 		glMaterialfv(GL_FRONT, GL_DIFFUSE, diffuseLightParams);
+ 	}
+ 
++	#ifdef SCGL_DIAGNOSTICS
++	static int layoutDiagnostics = 0;
++	if (layoutDiagnostics++ < 32 && pointer != nullptr && colorArrayEnabled && colorOffset >= 0 && stride >= static_cast<GLsizei>(colorOffset + 4)) {
++		float position[3]{};
++		unsigned char colorAtOffset[4]{};
++		float texCoord[2]{};
++		const auto texOffset = RZVertexFormatElementOffset(format, kGDElementType_TexCoord, 0);
++		std::memcpy(position, pointer, sizeof(position));
++		std::memcpy(colorAtOffset, reinterpret_cast<uint8_t const*>(pointer) + colorOffset, sizeof(colorAtOffset));
++		if (texOffset >= 0 && stride >= static_cast<GLsizei>(texOffset + sizeof(texCoord))) {
++			std::memcpy(texCoord, reinterpret_cast<uint8_t const*>(pointer) + texOffset, sizeof(texCoord));
++		}
++		SCGL_LOG("vertex-layout format=%u stride=%d normal=%d color=%d color_offset=%u tex_offset=%u first=%g,%g,%g color_at_offset=%u,%u,%u,%u tex=%g,%g",
++			format, stride, normalArrayEnabled, colorArrayEnabled, colorOffset,
++			texOffset,
++			position[0], position[1], position[2],
++			colorAtOffset[0], colorAtOffset[1], colorAtOffset[2], colorAtOffset[3],
++			texCoord[0], texCoord[1]);
++	}
++	#endif
++
+ 	shareable.interleavedPointer = pointer;
+ 	shareable.interleavedFormat = format;
+ 	shareable.interleavedStride = stride;
+@@ -412,7 +513,7 @@ void GLStateManager::TexParameter(GLenum target, GLenum pname, GLint param) {
+ 
+ 	textureParameters[pname] = texParamMap[param];
+ 	for (int i = 0; i < MAX_TEXTURE_UNITS; i++) {
+-		textureUnits[0].needsTextureParamRefresh = true;
++		textureUnits[i].needsTextureParamRefresh = true;
+ 	}
+ }
+ 
+@@ -420,7 +521,9 @@ void GLStateManager::TexStage(GLenum texUnit) {
+ 	activeTextureUnit = texUnit;
+ 
+ 	glClientActiveTexture(GL_TEXTURE0 + texUnit);
++	SCGL_GL_ERROR("TexStage.client-active");
+ 	glActiveTexture(GL_TEXTURE0 + texUnit);
++	SCGL_GL_ERROR("TexStage.active");
+ 
+ 	shareable.glActiveTextureUnit = texUnit;
+ }
+@@ -447,4 +550,4 @@ void GLStateManager::SetTextureImmediately(GLuint textureId) {
+ 
+ intptr_t GLStateManager::GetTexture(GLenum texUnit) {
+ 	return textureUnits[texUnit].GetTexture();
+-}
+\ No newline at end of file
++}
+diff --git a/scgl/GLSupport.cpp b/scgl/GLSupport.cpp
+index 628bac2..3cf4565 100644
+--- a/scgl/GLSupport.cpp
++++ b/scgl/GLSupport.cpp
+@@ -52,25 +52,30 @@ PFNWGLSWAPINTERVALEXTPROC wglSwapIntervalEXT = nullptr;
+ PFNWGLGETSWAPINTERVALEXTPROC wglGetSwapIntervalEXT = nullptr;
+ 
+ #define TRY_LOAD(type, name) name = reinterpret_cast<type>(wglGetProcAddress(#name))
++#define TRY_LOAD_ALIAS(type, name, alias) \
++	do { \
++		name = reinterpret_cast<type>(wglGetProcAddress(#name)); \
++		if (name == nullptr) name = reinterpret_cast<type>(wglGetProcAddress(#alias)); \
++	} while (0)
+ 
+ void InitGLSupport(void) {
+-	TRY_LOAD(PFNGLCOMPRESSEDTEXIMAGE2DPROC, glCompressedTexImage2D);
+-	TRY_LOAD(PFNGLCOMPRESSEDTEXSUBIMAGE2DPROC, glCompressedTexSubImage2D);
+-	TRY_LOAD(PFNGLACTIVETEXTUREPROC, glActiveTexture);
+-	TRY_LOAD(PFNGLCLIENTACTIVETEXTUREPROC, glClientActiveTexture);
++	TRY_LOAD_ALIAS(PFNGLCOMPRESSEDTEXIMAGE2DPROC, glCompressedTexImage2D, glCompressedTexImage2DARB);
++	TRY_LOAD_ALIAS(PFNGLCOMPRESSEDTEXSUBIMAGE2DPROC, glCompressedTexSubImage2D, glCompressedTexSubImage2DARB);
++	TRY_LOAD_ALIAS(PFNGLACTIVETEXTUREPROC, glActiveTexture, glActiveTextureARB);
++	TRY_LOAD_ALIAS(PFNGLCLIENTACTIVETEXTUREPROC, glClientActiveTexture, glClientActiveTextureARB);
+ 	TRY_LOAD(PFNGLGETSTRINGIPROC, glGetStringi);
+ 	TRY_LOAD(PFNGLDEBUGMESSAGECALLBACKPROC, glDebugMessageCallback);
+ 
+-	TRY_LOAD(PFNGLBINDRENDERBUFFERPROC, glBindRenderbuffer);
+-	TRY_LOAD(PFNGLDELETERENDERBUFFERSPROC, glDeleteRenderbuffers);
+-	TRY_LOAD(PFNGLGENRENDERBUFFERSPROC, glGenRenderbuffers);
+-	TRY_LOAD(PFNGLRENDERBUFFERSTORAGEPROC, glRenderbufferStorage);
+-	TRY_LOAD(PFNGLBINDFRAMEBUFFERPROC, glBindFramebuffer);
+-	TRY_LOAD(PFNGLDELETEFRAMEBUFFERSPROC, glDeleteFramebuffers);
+-	TRY_LOAD(PFNGLGENFRAMEBUFFERSPROC, glGenFramebuffers);
+-	TRY_LOAD(PFNGLCHECKFRAMEBUFFERSTATUSPROC, glCheckFramebufferStatus);
+-	TRY_LOAD(PFNGLFRAMEBUFFERRENDERBUFFERPROC, glFramebufferRenderbuffer);
+-	TRY_LOAD(PFNGLBLITFRAMEBUFFERPROC, glBlitFramebuffer);
++	TRY_LOAD_ALIAS(PFNGLBINDRENDERBUFFERPROC, glBindRenderbuffer, glBindRenderbufferEXT);
++	TRY_LOAD_ALIAS(PFNGLDELETERENDERBUFFERSPROC, glDeleteRenderbuffers, glDeleteRenderbuffersEXT);
++	TRY_LOAD_ALIAS(PFNGLGENRENDERBUFFERSPROC, glGenRenderbuffers, glGenRenderbuffersEXT);
++	TRY_LOAD_ALIAS(PFNGLRENDERBUFFERSTORAGEPROC, glRenderbufferStorage, glRenderbufferStorageEXT);
++	TRY_LOAD_ALIAS(PFNGLBINDFRAMEBUFFERPROC, glBindFramebuffer, glBindFramebufferEXT);
++	TRY_LOAD_ALIAS(PFNGLDELETEFRAMEBUFFERSPROC, glDeleteFramebuffers, glDeleteFramebuffersEXT);
++	TRY_LOAD_ALIAS(PFNGLGENFRAMEBUFFERSPROC, glGenFramebuffers, glGenFramebuffersEXT);
++	TRY_LOAD_ALIAS(PFNGLCHECKFRAMEBUFFERSTATUSPROC, glCheckFramebufferStatus, glCheckFramebufferStatusEXT);
++	TRY_LOAD_ALIAS(PFNGLFRAMEBUFFERRENDERBUFFERPROC, glFramebufferRenderbuffer, glFramebufferRenderbufferEXT);
++	TRY_LOAD_ALIAS(PFNGLBLITFRAMEBUFFERPROC, glBlitFramebuffer, glBlitFramebufferEXT);
+ 
+ 	TRY_LOAD(PFNWGLCREATEBUFFERREGIONARBPROC, wglCreateBufferRegionARB);
+ 	TRY_LOAD(PFNWGLDELETEBUFFERREGIONARBPROC, wglDeleteBufferRegionARB);
+@@ -86,4 +91,7 @@ void InitGLSupport(void) {
+ 
+ 	TRY_LOAD(PFNWGLSWAPINTERVALEXTPROC, wglSwapIntervalEXT);
+ 	TRY_LOAD(PFNWGLGETSWAPINTERVALEXTPROC, wglGetSwapIntervalEXT);
+-}
+\ No newline at end of file
++}
++
++#undef TRY_LOAD_ALIAS
++#undef TRY_LOAD
+diff --git a/scgl/GLTextureUnit.cpp b/scgl/GLTextureUnit.cpp
+index 2f94e78..6ef16fc 100644
+--- a/scgl/GLTextureUnit.cpp
++++ b/scgl/GLTextureUnit.cpp
+@@ -17,6 +17,7 @@
+  */
+ 
+ #include <cassert>
++#include "Diagnostics.h"
+ #include "GLTextureUnit.h"
+ #include "VertexFormatUtils.h"
+ 
+@@ -36,9 +37,13 @@ GLTextureUnit::GLTextureUnit(GLuint texUnitId, GLShareableState* sharedState) :
+ }
+ 
+ void GLTextureUnit::ApplyStateChanges(void) {
+-	int texCoordOffset = RZVertexFormatElementOffset(sharedState->interleavedFormat, kGDElementType_TexCoord, coordSrc);
+-	void const* localTextureHandle = reinterpret_cast<uint8_t const*>(sharedState->interleavedPointer) + texCoordOffset;
+-	bool isTextureHandleDirty = isEnabled && textureHandle != localTextureHandle;
++	void const* localTextureHandle = nullptr;
++	if (sharedState->interleavedPointer != nullptr
++		&& RZVertexFormatNumElements(sharedState->interleavedFormat, kGDElementType_TexCoord) > coordSrc) {
++		uint32_t texCoordOffset = RZVertexFormatElementOffset(sharedState->interleavedFormat, kGDElementType_TexCoord, coordSrc);
++		localTextureHandle = reinterpret_cast<uint8_t const*>(sharedState->interleavedPointer) + texCoordOffset;
++	}
++	bool isTextureHandleDirty = isEnabled && localTextureHandle != nullptr && textureHandle != localTextureHandle;
+ 
+ 	if (stateFlags || isTextureHandleDirty) {
+ 		if (sharedState->glActiveTextureUnit != textureUnitId) {
+@@ -50,14 +55,17 @@ void GLTextureUnit::ApplyStateChanges(void) {
+ 
+ 		if (stateFlags & GLTextureStateDiff_Enabled) {
+ 			ApplyNewEnabledState();
++			SCGL_GL_ERROR("GLTextureUnit.enabled");
+ 		}
+ 
+ 		if (stateFlags & GLTextureStateDiff_TextureId) {
+ 			glBindTexture(GL_TEXTURE_2D, textureId);
++			SCGL_GL_ERROR("GLTextureUnit.bind");
+ 		}
+ 
+ 		if (isTextureHandleDirty) {
+ 			glTexCoordPointer(2, GL_FLOAT, sharedState->interleavedStride, localTextureHandle);
++			SCGL_GL_ERROR("GLTextureUnit.texcoord-pointer");
+ 			textureHandle = localTextureHandle;
+ 		}
+ 
+@@ -214,4 +222,4 @@ bool GLTextureUnit::TexStageMatrix(GLfloat const* matrix, GLuint unknown0, GLuin
+ 	glMatrixMode(matrixModeMap[sharedState->activeMatrixMode]);
+ 
+ 	return true;
+-}
+\ No newline at end of file
++}
+diff --git a/scgl/cGDriver.cpp b/scgl/cGDriver.cpp
+index 40482d5..629af42 100644
+--- a/scgl/cGDriver.cpp
++++ b/scgl/cGDriver.cpp
+@@ -17,6 +17,7 @@
+  */
+ 
+ #include "cGDriver.h"
++#include "Diagnostics.h"
+ #include "GLSupport.h"
+ #include "VertexFormatUtils.h"
+ 
+@@ -34,14 +35,15 @@ namespace nSCGL
+ 	static GLenum fogParamTypeMap[] = { GL_FOG_MODE, GL_FOG_COLOR, GL_FOG_DENSITY, GL_FOG_START, GL_FOG_END, GL_FOG_COORD_SRC };
+ 
+ 	cGDriver::cGDriver() :
++		refCount(0),
+ 		lastError(DriverError::OK),
+ #ifndef NDEBUG
+ 		dbgLastError(GL_NO_ERROR),
+ #endif
++		videoModes(),
++		videoModeCount(0),
+ 		currentVideoMode(-1),
+ 		driverInfo("Maxis 3D GDriver\nOpenGL\n3.0\n"),
+-		videoModeCount(0),
+-		refCount(0),
+ 		windowWidth(0),
+ 		windowHeight(0),
+ 		viewportX(0),
+@@ -53,24 +55,33 @@ namespace nSCGL
+ 		renderbufferHandles(),
+ 		framebufferMasks(),
+ 		supportedExtensions(),
++		state(),
++		initialized(false),
++		preferLegacyContext(false),
+ 		windowHandle(nullptr),
+ 		deviceContext(nullptr),
+ 		glContext(nullptr)
+ 	{
++		SCGL_LOG("cGDriver ctor");
+ 	}
+ 
+ 	cGDriver::~cGDriver() {
+ 	}
+ 
+ 	void cGDriver::DrawArrays(GLenum gdMode, GLint first, GLsizei count) {
++		SCGL_LOG("DrawArrays mode=%u first=%d count=%d before_error=%u", gdMode, first, count, glGetError());
+ 		state.DrawArrays(gdMode, first, count);
++		SCGL_LOG("DrawArrays complete error=%u", glGetError());
+ 	}
+ 
+ 	void cGDriver::DrawElements(GLenum gdMode, GLsizei count, GLenum gdType, void const* indices) {
++		SCGL_LOG("DrawElements mode=%u count=%d type=%u indices=%p before_error=%u", gdMode, count, gdType, indices, glGetError());
+ 		state.DrawElements(gdMode, count, gdType, indices);
++		SCGL_LOG("DrawElements complete error=%u", glGetError());
+ 	}
+ 
+ 	void cGDriver::InterleavedArrays(GLenum format, GLsizei stride, void const* pointer) {
++		SCGL_LOG("InterleavedArrays format=%u stride=%d pointer=%p", format, stride, pointer);
+ 		if (stride == 0) {
+ 			stride = VertexFormatStride(format);
+ 		}
+@@ -145,10 +156,12 @@ namespace nSCGL
+ 	}
+ 
+ 	void cGDriver::BlendFunc(GLenum sfactor, GLenum dfactor) {
++		SCGL_LOG("BlendFunc source=%u destination=%u", sfactor, dfactor);
+ 		state.BlendFunc(sfactor, dfactor);
+ 	}
+ 
+ 	void cGDriver::AlphaFunc(GLenum func, GLclampf ref) {
++		SCGL_LOG("AlphaFunc func=%u ref=%g", func, ref);
+ 		state.AlphaFunc(func, ref);
+ 	}
+ 
+@@ -194,10 +207,12 @@ namespace nSCGL
+ 	}
+ 
+ 	void cGDriver::Enable(GLenum gdCap) {
++		SCGL_LOG("Enable capability=%u", gdCap);
+ 		state.Enable(gdCap);
+ 	}
+ 
+ 	void cGDriver::Disable(GLenum gdCap) {
++		SCGL_LOG("Disable capability=%u", gdCap);
+ 		state.Disable(gdCap);
+ 	}
+ 
+@@ -258,9 +273,7 @@ namespace nSCGL
+ 		bool unknown5,
+ 		void const* unknownBuffer2)
+ 	{
+-		uint8_t const* unknownUintBuffer1 = reinterpret_cast<uint8_t const*>(unknownBuffer1);
+-		uint8_t const* unknownUintBuffer2 = reinterpret_cast<uint8_t const*>(unknownBuffer2);
+-
++		SCGL_LOG("BitBlt dst=%d,%d size=%dx%d format=%u type=%u pixels=%p aux=%p flag=%d", destLeft, destTop, unknownWidth1, unknownHeight1, gdTexFormat, gdType, unknownBuffer1, unknownBuffer2, unknown5);
+ 		SetLastError(DriverError::NOT_SUPPORTED);
+ 	}
+ 
+@@ -277,9 +290,7 @@ namespace nSCGL
+ 		bool unknownBool,
+ 		void const* unknownBuffer2)
+ 	{
+-		uint8_t const* unknownUintBuffer1 = reinterpret_cast<uint8_t const*>(unknownBuffer1);
+-		uint8_t const* unknownUintBuffer2 = reinterpret_cast<uint8_t const*>(unknownBuffer2);
+-
++		SCGL_LOG("StretchBlt dst=%d,%d size=%dx%d source=%dx%d format=%u type=%u pixels=%p aux=%p flag=%d", destLeft, destTop, unknownWidth1, unknownHeight1, unknownWidth2, unknownHeight2, gdTexFormat, gdType, unknownBuffer1, unknownBuffer2, unknownBool);
+ 		SetLastError(DriverError::NOT_SUPPORTED);
+ 	}
+ 
+@@ -295,9 +306,7 @@ namespace nSCGL
+ 		void const* unknownBuffer2,
+ 		uint32_t unknown7)
+ 	{
+-		uint8_t const* unknownUintBuffer1 = reinterpret_cast<uint8_t const*>(unknownBuffer1);
+-		uint8_t const* unknownUintBuffer2 = reinterpret_cast<uint8_t const*>(unknownBuffer2);
+-
++		SCGL_LOG("BitBltAlpha args=%d,%d,%d,%d format=%u type=%u pixels=%p aux=%p flag=%d alpha=%u", unknown0, unknown1, unknown2, unknown3, gdTexFormat, gdType, unknownBuffer1, unknownBuffer2, unknown5, unknown7);
+ 		SetLastError(DriverError::NOT_SUPPORTED);
+ 	}
+ 
+@@ -315,9 +324,7 @@ namespace nSCGL
+ 		void const* unknownBuffer2,
+ 		uint32_t unknown9)
+ 	{
+-		uint8_t const* unknownUintBuffer1 = reinterpret_cast<uint8_t const*>(unknownBuffer1);
+-		uint8_t const* unknownUintBuffer2 = reinterpret_cast<uint8_t const*>(unknownBuffer2);
+-
++		SCGL_LOG("StretchBltAlpha dst=%d,%d size=%dx%d source=%dx%d format=%u type=%u pixels=%p aux=%p flag=%d alpha=%u", destLeft, destTop, unknownWidth1, unknownHeight1, unknownWidth2, unknownHeight2, gdTexFormat, gdType, unknownBuffer1, unknownBuffer2, unknown7, unknown9);
+ 		SetLastError(DriverError::NOT_SUPPORTED);
+ 	}
+ 
+@@ -325,6 +332,7 @@ namespace nSCGL
+ 		int32_t unknown0,
+ 		int32_t unknown1,
+ 		int32_t unknown2,
++		int32_t unknown3,
+ 		uint32_t gdTexFormat,
+ 		uint32_t gdType,
+ 		void const* unknownBuffer1,
+@@ -332,9 +340,7 @@ namespace nSCGL
+ 		void const* unknownBuffer2,
+ 		uint32_t unknown6)
+ 	{
+-		uint8_t const* unknownUintBuffer1 = reinterpret_cast<uint8_t const*>(unknownBuffer1);
+-		uint8_t const* unknownUintBuffer2 = reinterpret_cast<uint8_t const*>(unknownBuffer2);
+-
++		SCGL_LOG("BitBltAlphaModulate args=%d,%d,%d,%d format=%u type=%u pixels=%p aux=%p flag=%d alpha=%u", unknown0, unknown1, unknown2, unknown3, gdTexFormat, gdType, unknownBuffer1, unknownBuffer2, unknown4, unknown6);
+ 		SetLastError(DriverError::NOT_SUPPORTED);
+ 	}
+ 
+@@ -352,13 +358,11 @@ namespace nSCGL
+ 		void const* unknownBuffer2,
+ 		uint32_t unknown9)
+ 	{
+-		uint8_t const* unknownUintBuffer1 = reinterpret_cast<uint8_t const*>(unknownBuffer1);
+-		uint8_t const* unknownUintBuffer2 = reinterpret_cast<uint8_t const*>(unknownBuffer2);
+-
++		SCGL_LOG("StretchBltAlphaModulate dst=%d,%d size=%dx%d source=%dx%d format=%u type=%u pixels=%p aux=%p flag=%d alpha=%u", destLeft, destTop, unknownWidth1, unknownHeight1, unknownWidth2, unknownHeight2, gdTexFormat, gdType, unknownBuffer1, unknownBuffer2, unknown7, unknown9);
+ 		SetLastError(DriverError::NOT_SUPPORTED);
+ 	}
+ 
+ 	bool cGDriver::Punt(uint32_t, void*) {
+ 		return false;
+ 	}
+-}
+\ No newline at end of file
++}
+diff --git a/scgl/cGDriver.h b/scgl/cGDriver.h
+index a7886d4..01206ad 100644
+--- a/scgl/cGDriver.h
++++ b/scgl/cGDriver.h
+@@ -91,6 +91,7 @@ namespace nSCGL
+ 		struct {
+ 			// OpenGL
+ 			bool bgraColor;
++			bool colorArray;
+ 			bool stencilBuffer;
+ 			bool multitexture;
+ 			bool textureEnvCombine;
+@@ -112,6 +113,8 @@ namespace nSCGL
+ 
+ 	private:
+ 		GLStateManager state;
++		bool initialized;
++		bool preferLegacyContext;
+ 		void* windowHandle;
+ 		void* deviceContext;
+ 		void* glContext;
+@@ -235,9 +238,15 @@ namespace nSCGL
+ 		virtual void SetCombiner(cGDCombiner const& combiner, uint32_t) override;
+ 
+ 		virtual uint32_t CountVideoModes(void) const override;
++#ifdef SCGL_SIMCITY4_610_ABI
++		virtual void GetVideoModeInfo(sGDMode& gdMode) override;
++		virtual void GetVideoModeInfo(uint32_t dwIndex, sGDMode& gdMode) override;
++		virtual void SetVideoMode(int32_t newModeIndex, void*, bool, bool) override;
++#else
+ 		virtual void GetVideoModeInfo(uint32_t dwIndex, sGDMode& gdMode) override;
+ 		virtual void GetVideoModeInfo(sGDMode& gdMode) override;
+ 		virtual void SetVideoMode(int32_t newModeIndex, void*, bool, bool) override;
++#endif
+ 
+ 		virtual void PolygonOffset(int32_t) override;
+ 
+@@ -245,11 +254,11 @@ namespace nSCGL
+ 		virtual void StretchBlt(int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t gdTexFormat, uint32_t gdType, void const*, bool, void const*) override;
+ 		virtual void BitBltAlpha(int32_t, int32_t, int32_t, int32_t, uint32_t gdTexFormat, uint32_t gdType, void const*, bool, void const*, uint32_t) override;
+ 		virtual void StretchBltAlpha(int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t gdTexFormat, uint32_t gdType, void const*, bool, void const*, uint32_t) override;
+-		virtual void BitBltAlphaModulate(int32_t, int32_t, int32_t, uint32_t gdTexFormat, uint32_t gdType, void const*, bool, void const*, uint32_t) override;
++		virtual void BitBltAlphaModulate(int32_t, int32_t, int32_t, int32_t, uint32_t gdTexFormat, uint32_t gdType, void const*, bool, void const*, uint32_t) override;
+ 		virtual void StretchBltAlphaModulate(int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t gdTexFormat, uint32_t gdType, void const*, bool, void const*, uint32_t) override;
+ 
+-		virtual void SetViewport(void) override;
+ 		virtual void SetViewport(int32_t x, int32_t y, int32_t width, int32_t height) override;
++		virtual void SetViewport(void) override;
+ 		virtual void GetViewport(int32_t dimensions[4]) override;
+ 
+ 		virtual char const* GetDriverInfo(void) const override;
+@@ -295,4 +304,4 @@ namespace nSCGL
+ 		virtual void MaterialColor(uint32_t, float const*) override;
+ 		virtual void MaterialColor(float const*, float const*, float const*, float const*, float) override;
+ 	};
+-}
+\ No newline at end of file
++}
+diff --git a/scgl/cGDriver_Info.cpp b/scgl/cGDriver_Info.cpp
+index 909db39..28bd7ca 100644
+--- a/scgl/cGDriver_Info.cpp
++++ b/scgl/cGDriver_Info.cpp
+@@ -17,24 +17,28 @@
+  */
+ 
+ #include "cGDriver.h"
++#include "Diagnostics.h"
+ 
+ namespace nSCGL
+ {
+ 	char const* cGDriver::GetDriverInfo(void) const {
++		SCGL_LOG("GetDriverInfo");
+ 		return driverInfo.c_str();
+ 	}
+ 
+ 	uint32_t cGDriver::GetGZCLSID(void) const {
++		SCGL_LOG("GetGZCLSID=%08x", kSCGLGDriverGZCLSID);
+ 		return kSCGLGDriverGZCLSID;
+ 	}
+ 
+ 	uint32_t cGDriver::GetError(void) {
+ 		DriverError retError = lastError;
+ 		lastError = DriverError::OK;
++		SCGL_LOG("GetError this=%p=%u", this, static_cast<uint32_t>(retError));
+ 		return static_cast<uint32_t>(retError);
+ 	}
+ 
+ 	void cGDriver::SetLastError(DriverError err) {
+ 		lastError = err;
+ 	}
+-}
+\ No newline at end of file
++}
+diff --git a/scgl/cGDriver_Init.cpp b/scgl/cGDriver_Init.cpp
+index 38d5ecc..9362acc 100644
+--- a/scgl/cGDriver_Init.cpp
++++ b/scgl/cGDriver_Init.cpp
+@@ -16,13 +16,17 @@
+  *  License along with this library; if not, see <https://www.gnu.org/licenses/>.
+  */
+ 
++#include <cstdlib>
+ #include <string>
+ #include "cGDriver.h"
++#include "Diagnostics.h"
+ #include "GLSupport.h"
+ 
+ namespace nSCGL
+ {
+ 	bool cGDriver::Init(void) {
++		SCGL_LOG("Init start");
++		initialized = false;
+ #ifndef NDEBUG
+ 		WNDCLASS wcDebug{};
+ 		wcDebug.style = CS_OWNDC;
+@@ -90,12 +94,12 @@ namespace nSCGL
+ 
+ 		// Load function pointers and check extensions now that we have a false context
+ 		InitGLSupport();
++		SCGL_LOG("entrypoints stringi=%p active=%p client_active=%p fbo_bind=%p fbo_gen=%p fbo_check=%p fbo_blit=%p wgl_context=%p wgl_pixel=%p",
++			glGetStringi, glActiveTexture, glClientActiveTexture, glBindFramebuffer, glGenFramebuffers,
++			glCheckFramebufferStatus, glBlitFramebuffer, wglCreateContextAttribsARB, wglChoosePixelFormatARB);
+ 
+-		int glExtensionCount;
+-		glGetIntegerv(GL_NUM_EXTENSIONS, &glExtensionCount);
+-
+-		for (int i = 0; i < glExtensionCount; i++) {
+-			const char* extensionName = reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, i));
++		auto recordGLExtension = [this](const char* extensionName) {
++			if (extensionName == nullptr) return;
+ 
+ 			if (strcmp(extensionName, "GL_ARB_vertex_array_bgra") == 0) supportedExtensions.bgraColor = true;
+ 			if (strcmp(extensionName, "GL_EXT_vertex_array_bgra") == 0) supportedExtensions.bgraColor = true;
+@@ -106,6 +110,30 @@ namespace nSCGL
+ 			if (strcmp(extensionName, "GL_NV_texture_env_combine4") == 0) supportedExtensions.nvTextureEnvCombine4 = true;
+ 			if (strcmp(extensionName, "GL_KHR_debug") == 0) supportedExtensions.debugOutput = true;
+ 			if (strcmp(extensionName, "GL_KHR_no_error") == 0) supportedExtensions.noError = true;
++		};
++
++		if (glGetStringi != nullptr) {
++			int glExtensionCount = 0;
++			glGetIntegerv(GL_NUM_EXTENSIONS, &glExtensionCount);
++
++			for (int i = 0; i < glExtensionCount; i++) {
++				const char* extensionName = reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, i));
++				SCGL_LOG("extension %s", extensionName == nullptr ? "<null>" : extensionName);
++				recordGLExtension(extensionName);
++			}
++		}
++		else {
++			const char* extensionString = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
++			char* extensionList = extensionString == nullptr ? nullptr : _strdup(extensionString);
++			char* extensionName = extensionList == nullptr ? nullptr : strtok(extensionList, " ");
++
++			while (extensionName != nullptr) {
++				SCGL_LOG("extension %s", extensionName);
++				recordGLExtension(extensionName);
++				extensionName = strtok(nullptr, " ");
++			}
++
++			free(extensionList);
+ 		}
+ 
+ 		if (wglGetExtensionsStringARB != nullptr) {
+@@ -125,15 +153,22 @@ namespace nSCGL
+ 			}
+ 		}
+ 
+-		if (!supportedExtensions.bgraColor) {
+-			MessageBoxA(NULL, "Your graphics card does not support BGRA color order. SimCity 4 will fall back to software rendering.", "SCGL failed to start", MB_ICONERROR);
+-			return false;
+-		}
++		state.shareable.colorArraySize = 4;
++		SCGL_LOG("color array size=%d bgra_extension=%d", state.shareable.colorArraySize, supportedExtensions.bgraColor);
++		supportedExtensions.colorArray = true;
+ 
+ 		// Get device info while the false context is still up
+ 		char const* vendor = reinterpret_cast<char const*>(glGetString(GL_VENDOR));
+ 		char const* renderer = reinterpret_cast<char const*>(glGetString(GL_RENDERER));
+ 		char const* version = reinterpret_cast<char const*>(glGetString(GL_VERSION));
++		if (vendor == nullptr) vendor = "UnknownVendor";
++		if (renderer == nullptr) renderer = "UnknownRenderer";
++		if (version == nullptr) version = "UnknownVersion";
++		preferLegacyContext = strstr(vendor, "Apple") != nullptr || strstr(renderer, "Apple") != nullptr;
++		SCGL_LOG("vendor=%s renderer=%s version=%s bgra=%d fbo_bind=%p fbo_gen=%p fbo_check=%p fbo_blit=%p",
++			vendor, renderer, version, supportedExtensions.bgraColor, glBindFramebuffer, glGenFramebuffers,
++			glCheckFramebufferStatus, glBlitFramebuffer);
++		SCGL_LOG("context-policy legacy=%d", preferLegacyContext);
+ 
+ 		static const char unknownDriverName[] = "UnknownDriverName";
+ 		static const char unknownCardVersion[] = "UnknownCardVersion";
+@@ -150,19 +185,24 @@ namespace nSCGL
+ 		driverInfo.append("\n", 1);
+ 
+ 		InitializeVideoModeVector();
++		SCGL_LOG("Init complete modes=%d color_array_size=%d", videoModeCount, state.shareable.colorArraySize);
+ 
+ 		// Tear down the false context. We'll create a new, better one in SetVideoMode.
+ 		DestroyOpenGLContext();
++		initialized = true;
+ 		return true;
+ 	}
+ 
+ 	bool cGDriver::Shutdown(void) {
++		SCGL_LOG("Shutdown");
++		initialized = false;
+ 		DestroyOpenGLContext();
+ 		UnregisterClass("GDriverClass--OpenGL", nullptr);
+ 		return true;
+ 	}
+ 
+ 	void cGDriver::DestroyOpenGLContext(void) {
++		SCGL_LOG("DestroyOpenGLContext start context=%p window=%p dc=%p", glContext, windowHandle, deviceContext);
+ 		if (glContext != nullptr) {
+ 			wglMakeCurrent(nullptr, nullptr);
+ 			wglDeleteContext(static_cast<HGLRC>(glContext));
+@@ -171,14 +211,26 @@ namespace nSCGL
+ 		}
+ 
+ 		if (windowHandle != nullptr) {
+-			DestroyWindow(static_cast<HWND>(windowHandle));
++			HWND window = static_cast<HWND>(windowHandle);
++			if (deviceContext != nullptr) {
++				ReleaseDC(window, static_cast<HDC>(deviceContext));
++			}
++			DestroyWindow(window);
+ 
+ 			windowHandle = nullptr;
+ 			deviceContext = nullptr;
+ 		}
++		SCGL_LOG("DestroyOpenGLContext complete");
+ 	}
+ 
+ 	int32_t cGDriver::InitializeVideoModeVector(void) {
++	#ifdef SCGL_SIMCITY4_610_ABI
++		// The 1.1.610 executable stores the reference driver's two entries per
++		// display mode in a fixed 56-entry table. Newer Wine/macOS display
++		// enumeration can expose more modes, so keep the legacy ABI contract.
++		constexpr int32_t kSimCity4MaxVideoModes = 56;
++	#endif
++
+ 		if (videoModeCount != 0) {
+ 			videoModes.clear();
+ 			videoModeCount = 0;
+@@ -195,7 +247,7 @@ namespace nSCGL
+ 
+ 			bool isDuplicate = false;
+ 			for (sGDMode const& it : videoModes) {
+-				if (it.width == displayMode.dmPelsWidth && it.height == displayMode.dmPelsHeight && it.depth == depth) {
++				if (it.width == displayMode.dmPelsWidth && it.height == displayMode.dmPelsHeight && it.depth == static_cast<uint32_t>(depth)) {
+ 					isDuplicate = true;
+ 					break;
+ 				}
+@@ -205,11 +257,18 @@ namespace nSCGL
+ 				continue;
+ 			}
+ 
++		#ifdef SCGL_SIMCITY4_610_ABI
++			if (videoModeCount + 2 > kSimCity4MaxVideoModes) {
++				break;
++			}
++		#endif
++
+ 			sGDMode tempMode{};
++			// Keep the two fixed-function texture stages used by SC4's 3D renderer.
+ 			tempMode.textureStageCount = MAX_TEXTURE_UNITS;
+ 
+ 			// If not set, SC4 throws the "Could not initialize the hardware driver" error and switches to software mode.
+-			tempMode.isInitialized = supportedExtensions.bgraColor;
++			tempMode.isInitialized = supportedExtensions.colorArray;
+ 
+ 			// Set our graphics capabilities as determined by extensions.
+ 			// Stencil buffer is always present since we require it for the pixel format.
+@@ -247,13 +306,77 @@ namespace nSCGL
+ 			tempMode.isFullscreen = true;
+ 
+ 			videoModes.push_back(tempMode);
++			SCGL_LOG("mode index=%u size=%ux%u depth=%u fullscreen=%d initialized=%d stages=%u", tempMode.index,
++				tempMode.width, tempMode.height, tempMode.depth, tempMode.isFullscreen, tempMode.isInitialized,
++				tempMode.textureStageCount);
+ 
+ 			tempMode.index = videoModeCount++;
+ 			tempMode.isFullscreen = false;
+ 
+ 			videoModes.push_back(tempMode);
++			SCGL_LOG("mode index=%u size=%ux%u depth=%u fullscreen=%d initialized=%d stages=%u", tempMode.index,
++				tempMode.width, tempMode.height, tempMode.depth, tempMode.isFullscreen, tempMode.isInitialized,
++				tempMode.textureStageCount);
++		}
++
++	#ifdef SCGL_SIMCITY4_610_ABI
++		// The 1.1.610 selector is driven by the requested 1600x900 profile mode,
++		// while Wine's Retina-aware EnumDisplaySettings list contains only host
++		// physical sizes. Keep that legacy window mode in the fixed 56-entry table.
++		bool hasLegacyWindowMode = false;
++		for (sGDMode const& mode : videoModes) {
++			if (mode.width == 1600 && mode.height == 900 && mode.depth == 32 && !mode.isFullscreen) {
++				hasLegacyWindowMode = true;
++				break;
++			}
++		}
++
++		if (!hasLegacyWindowMode) {
++			while (!videoModes.empty() && videoModeCount + 2 > kSimCity4MaxVideoModes) {
++				videoModes.pop_back();
++				--videoModeCount;
++			}
++
++			sGDMode legacyMode{};
++			if (!videoModes.empty()) {
++				legacyMode = videoModes.front();
++			}
++			legacyMode.width = 1600;
++			legacyMode.height = 900;
++			legacyMode.depth = 32;
++			legacyMode.alphaColorMask = 0xff000000;
++			legacyMode.redColorMask = 0x00ff0000;
++			legacyMode.greenColorMask = 0x0000ff00;
++			legacyMode.blueColorMask = 0x000000ff;
++			legacyMode.textureStageCount = MAX_TEXTURE_UNITS;
++			legacyMode.isInitialized = supportedExtensions.colorArray;
++			legacyMode.supportsStencilBuffer = true;
++			legacyMode.supportsMultitexture = supportedExtensions.multitexture;
++			legacyMode.supportsTextureEnvCombine = supportedExtensions.textureEnvCombine;
++			legacyMode.supportsFogCoord = supportedExtensions.fogCoord;
++			legacyMode.supportsDxtTextures = supportedExtensions.textureCompression;
++			legacyMode.supportsNvTextureEnvCombine4 = supportedExtensions.nvTextureEnvCombine4;
++			legacyMode.__unknown2 = true;
++			legacyMode.__unknown5[0] = false;
++			legacyMode.__unknown5[1] = false;
++			legacyMode.__unknown5[2] = false;
++
++			legacyMode.index = videoModeCount++;
++			legacyMode.isFullscreen = true;
++			videoModes.push_back(legacyMode);
++			SCGL_LOG("mode index=%u size=%ux%u depth=%u fullscreen=%d initialized=%d stages=%u synthetic=1", legacyMode.index,
++				legacyMode.width, legacyMode.height, legacyMode.depth, legacyMode.isFullscreen, legacyMode.isInitialized,
++				legacyMode.textureStageCount);
++
++			legacyMode.index = videoModeCount++;
++			legacyMode.isFullscreen = false;
++			videoModes.push_back(legacyMode);
++			SCGL_LOG("mode index=%u size=%ux%u depth=%u fullscreen=%d initialized=%d stages=%u synthetic=1", legacyMode.index,
++				legacyMode.width, legacyMode.height, legacyMode.depth, legacyMode.isFullscreen, legacyMode.isInitialized,
++				legacyMode.textureStageCount);
+ 		}
++	#endif
+ 
+ 		return videoModeCount;
+ 	}
+-}
+\ No newline at end of file
++}
+diff --git a/scgl/cGDriver_Textures.cpp b/scgl/cGDriver_Textures.cpp
+index 028c885..410c197 100644
+--- a/scgl/cGDriver_Textures.cpp
++++ b/scgl/cGDriver_Textures.cpp
+@@ -18,6 +18,7 @@
+ 
+ #include "cGDriver.h"
+ #include "cGDCombiner.h"
++#include "Diagnostics.h"
+ #include "GLSupport.h"
+ 
+ #ifdef NDEBUG
+@@ -31,6 +32,13 @@ extern GLenum glBlendMap[11];
+ 
+ namespace nSCGL
+ {
++	#ifdef SCGL_DIAGNOSTICS
++	static int textureCallDiagnostics = 0;
++	#define SCGL_TEXTURE_LOG(...) do { if (textureCallDiagnostics++ < 128) SCGL_LOG(__VA_ARGS__); } while (0)
++	#else
++	#define SCGL_TEXTURE_LOG(...) ((void)0)
++	#endif
++
+ 	static GLenum texEnvParamMap[2] = { GL_TEXTURE_ENV_MODE, GL_TEXTURE_ENV_COLOR };
+ 	static GLenum internalFormatMap[8] = {
+ 		GL_RGB5, GL_RGB8, GL_RGBA4, GL_RGB5_A1,
+@@ -46,10 +54,12 @@ namespace nSCGL
+ 
+ 	void cGDriver::GenTextures(GLsizei n, GLuint* textures) {
+ 		glGenTextures(n, textures);
++		SCGL_TEXTURE_LOG("GenTextures count=%d first=%u", n, n > 0 && textures != nullptr ? textures[0] : 0);
+ 	}
+ 
+ 	void cGDriver::DeleteTextures(GLsizei n, GLuint const* textures) {
+ 		glDeleteTextures(n, textures);
++		SCGL_TEXTURE_LOG("DeleteTextures count=%d first=%u", n, n > 0 && textures != nullptr ? textures[0] : 0);
+ 	}
+ 
+ 	bool cGDriver::IsTexture(GLuint texture) {
+@@ -74,6 +84,7 @@ namespace nSCGL
+ 		}
+ #endif
+ 
++		SCGL_TEXTURE_LOG("BindTexture target=%u texture=%u", target, texture);
+ 		state.BindTexture(texture);
+ 	}
+ 
+@@ -85,8 +96,11 @@ namespace nSCGL
+ 		}
+ #endif
+ 
++		SCGL_TEXTURE_LOG("TexImage2D target=%u level=%d internal=%d size=%dx%d border=%d format=%u type=%u pixels=%p",
++			target, level, internalformat, width, height, border, format, type, pixels);
+ 		NOTIMPL();
+ 		glTexImage2D(GL_TEXTURE_2D, level, internalformat, width, height, border, format, type, pixels);
++		SCGL_GL_ERROR("TexImage2D");
+ 	}
+ 
+ 	void cGDriver::PixelStore(GLenum pname, GLint param) {
+@@ -97,22 +111,29 @@ namespace nSCGL
+ 		}
+ #endif
+ 
++		SCGL_TEXTURE_LOG("PixelStore pname=%u param=%d", pname, param);
+ 		glPixelStorei(GL_UNPACK_ROW_LENGTH, param);
++		SCGL_GL_ERROR("PixelStore");
+ 	}
+ 
+ 	void cGDriver::TexEnv(GLenum target, GLenum pname, GLint gdParam) {
++		SCGL_TEXTURE_LOG("TexEnv mode=%d", gdParam);
+ 		state.TexEnv(target, pname, gdParam);
++		SCGL_GL_ERROR("TexEnv.mode");
+ 	}
+ 
+ 	void cGDriver::TexEnv(GLenum target, GLenum pname, GLfloat const* params) {
+ 		state.TexEnv(target, pname, params);
++		SCGL_GL_ERROR("TexEnv.color");
+ 	}
+ 
+ 	void cGDriver::TexParameter(GLenum target, GLenum pname, GLint param) {
++		SCGL_TEXTURE_LOG("TexParameter pname=%u param=%d", pname, param);
+ 		state.TexParameter(target, pname, param);
+ 	}
+ 
+ 	void cGDriver::TexStage(GLenum texUnit) {
++		SCGL_TEXTURE_LOG("TexStage unit=%u", texUnit);
+ 		if (texUnit < MAX_TEXTURE_UNITS) {
+ 			state.TexStage(texUnit);
+ 			return;
+@@ -130,6 +151,7 @@ namespace nSCGL
+ 	}
+ 
+ 	void cGDriver::TexStageCombine(eGDTextureStageCombineParamType gdParamType, eGDTextureStageCombineModeParam gdParam) {
++		SCGL_TEXTURE_LOG("TexStageCombine mode type=%d param=%d", (int)gdParamType, (int)gdParam);
+ 		static GLenum pnameMap[] = { GL_COMBINE_RGB, GL_COMBINE_ALPHA };
+ 		static GLint paramMap[] = { GL_REPLACE, GL_MODULATE, GL_ADD, GL_ADD_SIGNED, GL_INTERPOLATE, GL_DOT3_RGB };
+ 
+@@ -137,9 +159,11 @@ namespace nSCGL
+ 		SIZE_CHECK((int)gdParam, paramMap);
+ 
+ 		glTexEnvi(GL_TEXTURE_ENV, pnameMap[(int)gdParamType], paramMap[(int)gdParam]);
++		SCGL_GL_ERROR("TexStageCombine.mode");
+ 	}
+ 
+ 	void cGDriver::TexStageCombine(eGDTextureStageCombineSourceParamType gdParamType, eGDTextureStageCombineSourceParam gdParam) {
++		SCGL_TEXTURE_LOG("TexStageCombine source type=%d param=%d", (int)gdParamType, (int)gdParam);
+ 		static GLenum pnameMap[] = { GL_SRC0_RGB, GL_SRC1_RGB, GL_SRC2_RGB, GL_SOURCE3_RGB_NV, GL_SRC0_ALPHA, GL_SRC1_ALPHA, GL_SRC2_ALPHA, GL_SOURCE3_ALPHA_NV };
+ 		static GLint paramMap[] = { GL_TEXTURE, GL_PREVIOUS, GL_CONSTANT, GL_PRIMARY_COLOR };
+ 
+@@ -147,18 +171,22 @@ namespace nSCGL
+ 		SIZE_CHECK((int)gdParam, paramMap);
+ 
+ 		glTexEnvi(GL_TEXTURE_ENV, pnameMap[(int)gdParamType], paramMap[(int)gdParam]);
++		SCGL_GL_ERROR("TexStageCombine.source");
+ 	}
+ 
+ 	void cGDriver::TexStageCombine(eGDTextureStageCombineOperandType gdParamType, eGDBlend gdBlend) {
++		SCGL_TEXTURE_LOG("TexStageCombine operand type=%d blend=%d", (int)gdParamType, (int)gdBlend);
+ 		static GLenum pnameMap[] = { GL_OPERAND0_RGB, GL_OPERAND1_RGB, GL_OPERAND2_RGB, GL_OPERAND3_RGB_NV, GL_OPERAND0_ALPHA, GL_OPERAND1_ALPHA, GL_OPERAND2_ALPHA, GL_OPERAND3_ALPHA_NV };
+ 
+ 		SIZE_CHECK((int)gdParamType, pnameMap);
+ 		SIZE_CHECK((int)gdBlend, glBlendMap);
+ 
+ 		glTexEnvi(GL_TEXTURE_ENV, pnameMap[(int)gdParamType], glBlendMap[(int)gdBlend]);
++		SCGL_GL_ERROR("TexStageCombine.operand");
+ 	}
+ 
+ 	void cGDriver::TexStageCombine(eGDTextureStageCombineScaleParamType gdPname, eGDTextureStageCombineScaleParam gdParam) {
++		SCGL_TEXTURE_LOG("TexStageCombine scale type=%d param=%d", (int)gdPname, (int)gdParam);
+ 		static GLenum pnameMap[] = { GL_RGB_SCALE, GL_ALPHA_SCALE };
+ 		static GLfloat paramMap[] = { 1.0f, 2.0f, 4.0f };
+ 
+@@ -166,17 +194,22 @@ namespace nSCGL
+ 		SIZE_CHECK((int)gdParam, paramMap);
+ 
+ 		glTexEnvfv(GL_TEXTURE_ENV, pnameMap[(int)gdPname], &paramMap[(int)gdParam]);
++		SCGL_GL_ERROR("TexStageCombine.scale");
+ 	}
+ 
+ 	void cGDriver::SetTexture(GLuint textureId, GLenum texUnit) {
++		SCGL_TEXTURE_LOG("SetTexture unit=%u texture=%u", texUnit, textureId);
+ 		state.SetTexture(textureId, texUnit);
+ 	}
+ 
+ 	intptr_t cGDriver::GetTexture(GLenum texUnit) {
+-		return state.GetTexture(texUnit);
++		intptr_t texture = state.GetTexture(texUnit);
++		SCGL_TEXTURE_LOG("GetTexture unit=%u texture=%td", texUnit, texture);
++		return texture;
+ 	}
+ 
+ 	intptr_t cGDriver::CreateTexture(uint32_t texformat, uint32_t width, uint32_t height, uint32_t levels, uint32_t texhints) {
++		SCGL_TEXTURE_LOG("CreateTexture format=%u size=%ux%u levels=%u hints=%u", texformat, width, height, levels, texhints);
+ 		GLuint textureId;
+ 		glGenTextures(1, &textureId);
+ 
+@@ -202,16 +235,38 @@ namespace nSCGL
+ 	}
+ 
+ 	void cGDriver::LoadTextureLevel(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, uint32_t gdTexFormat, uint32_t gdType, uint32_t rowLength, void const* pixels) {
++		SCGL_TEXTURE_LOG("LoadTextureLevel texture=%u level=%d size=%dx%d format=%u type=%u row=%u pixels=%p", texture, level, width, height, gdTexFormat, gdType, rowLength, pixels);
+ 		GLenum glFormat = formatMap[gdTexFormat];
+ 		GLenum glType = typeMap[gdType];
++	#ifdef SCGL_DIAGNOSTICS
++		static int textureUploadDiagnostics = 0;
++		if (pixels != nullptr && textureUploadDiagnostics++ < 64
++				&& glFormat == GL_BGRA && glType == GL_UNSIGNED_BYTE) {
++			const auto* bytes = reinterpret_cast<const unsigned char*>(pixels);
++			SCGL_LOG("texture-upload-sample texture=%u format=%u type=%u first=%u,%u,%u,%u next=%u,%u,%u,%u",
++				texture, gdTexFormat, gdType,
++				bytes[0], bytes[1], bytes[2], bytes[3],
++				bytes[4], bytes[5], bytes[6], bytes[7]);
++		}
++	#endif
+ 
+ 		glBindTexture(GL_TEXTURE_2D, texture);
+ 		state.SetTextureImmediately(texture);
+ 
+ 		GLint texParamWidth, texParamHeight, internalFormat;
+ 		glGetTexLevelParameteriv(GL_TEXTURE_2D, level, GL_TEXTURE_WIDTH, &texParamWidth);
++		GLenum queryError = glGetError();
++		#ifdef SCGL_DIAGNOSTICS
++		static int textureDiagnostics = 0;
++		if (queryError != GL_NO_ERROR && textureDiagnostics++ < 64) {
++			SCGL_LOG("LoadTextureLevel query-error texture=%u level=%d error=%u format=%u type=%u size=%dx%d", texture, level, queryError, gdTexFormat, gdType, width, height);
++		}
++		if (queryError == GL_NO_ERROR && texParamWidth == 0 && textureDiagnostics++ < 64) {
++			SCGL_LOG("LoadTextureLevel zero-width texture=%u level=%d format=%u type=%u size=%dx%d", texture, level, gdTexFormat, gdType, width, height);
++		}
++		#endif
+ 
+-		if (glGetError() == GL_NO_ERROR && texParamWidth != 0) {
++		if (queryError == GL_NO_ERROR && texParamWidth != 0) {
+ 			glGetTexLevelParameteriv(GL_TEXTURE_2D, level, GL_TEXTURE_HEIGHT, &texParamHeight);
+ 			glGetTexLevelParameteriv(GL_TEXTURE_2D, level, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
+ 
+@@ -223,6 +278,7 @@ namespace nSCGL
+ 				else {
+ 					glCompressedTexSubImage2D(GL_TEXTURE_2D, level, xoffset, yoffset, width, height, glFormat, size, pixels);
+ 				}
++				SCGL_GL_ERROR("LoadTextureLevel.compressed-upload");
+ 
+ 				return;
+ 			}
+@@ -235,10 +291,12 @@ namespace nSCGL
+ 			else {
+ 				glTexSubImage2D(GL_TEXTURE_2D, level, xoffset, yoffset, width, height, glFormat, glType, pixels);
+ 			}
++			SCGL_GL_ERROR("LoadTextureLevel.upload");
+ 		}
+ 	}
+ 
+ 	void cGDriver::SetCombiner(cGDCombiner const& combiner, uint32_t texUnit) {
++		SCGL_TEXTURE_LOG("SetCombiner unit=%u rgb=%u alpha=%u", texUnit, combiner.RGBCombineMode, combiner.AlphaCombineMode);
+ 		static eGDBlend colorOperandMap[] = {
+ 			eGDBlend::SrcColor,
+ 			eGDBlend::OneMinusSrcColor,
+@@ -274,4 +332,4 @@ namespace nSCGL
+ 		TexStageCombine(eGDTextureStageCombineOperandType::Operand2Alpha, (eGDBlend)alphaOperandMap[combiner.AlphaParams[2].OperandType]);
+ 		TexStageCombine(eGDTextureStageCombineSourceParamType::Src2Alpha, (eGDTextureStageCombineSourceParam)combiner.AlphaParams[2].SourceType);
+ 	}
+-}
+\ No newline at end of file
++}
+diff --git a/scgl/cGDriver_Unknown.cpp b/scgl/cGDriver_Unknown.cpp
+index d8d03ac..adc9b85 100644
+--- a/scgl/cGDriver_Unknown.cpp
++++ b/scgl/cGDriver_Unknown.cpp
+@@ -17,20 +17,31 @@
+  */
+ 
+ #include "cGDriver.h"
++#include "Diagnostics.h"
+ #include "GLSupport.h"
+ 
+ namespace nSCGL
+ {
+ 	bool cGDriver::QueryInterface(uint32_t riid, void** ppvObj) {
++		SCGL_LOG("QueryInterface riid=%08x", riid);
+ 		switch (riid)
+ 		{
+ 		case GZIID_cIGZUnknown:
+ 		case GZIID_cIGZGDriver:
++		{
+ #ifndef NDEBUG
+ 			MessageBoxA(NULL, "SCGL has arrived - attach your debugger now.", "cIGZGDriver - cGDriver::QueryInterface", 0);
+ #endif
+ 			*ppvObj = static_cast<cIGZGDriver*>(this);
++			SCGL_LOG("QueryInterface result=%p vtable=%p", *ppvObj, *reinterpret_cast<void***>(*ppvObj));
++			#ifdef SCGL_DIAGNOSTICS
++			void** vtable = *reinterpret_cast<void***>(*ppvObj);
++			for (int i = 0; i <= 82; ++i) {
++				SCGL_LOG("vtable[%d]=%p", i, vtable[i]);
++			}
++			#endif
+ 			break;
++		}
+ 
+ 		case GZIID_cIGZGBufferRegionExtension:
+ 			*ppvObj = static_cast<cIGZGBufferRegionExtension*>(this);
+@@ -60,15 +71,19 @@ namespace nSCGL
+ 	}
+ 
+ 	uint32_t cGDriver::AddRef(void) {
+-		return cRZRefCount::AddRef();
++		uint32_t result = cRZRefCount::AddRef();
++		SCGL_LOG("AddRef=%u", result);
++		return result;
+ 	}
+ 
+ 	uint32_t cGDriver::Release(void) {
+-		return cRZRefCount::Release();
++		uint32_t result = cRZRefCount::Release();
++		SCGL_LOG("Release=%u", result);
++		return result;
+ 	}
+ 
+ 	bool cGDriver::FinalRelease(void) {
+ 		NOTIMPL();
+ 		return false;
+ 	}
+-}
+\ No newline at end of file
++}
+diff --git a/scgl/cGDriver_Viewport.cpp b/scgl/cGDriver_Viewport.cpp
+index cacfce1..8467173 100644
+--- a/scgl/cGDriver_Viewport.cpp
++++ b/scgl/cGDriver_Viewport.cpp
+@@ -17,7 +17,9 @@
+  */
+ 
+ #include "cGDriver.h"
++#include "Diagnostics.h"
+ #include "GLSupport.h"
++#include <cstdint>
+ 
+ namespace nSCGL
+ {
+@@ -40,34 +42,57 @@ namespace nSCGL
+ #endif
+ 
+ 	uint32_t cGDriver::CountVideoModes(void) const {
++		SCGL_LOG("CountVideoModes this=%p=%d", this, videoModeCount);
+ 		return videoModeCount;
+ 	}
+ 
+ 	void cGDriver::GetVideoModeInfo(uint32_t dwIndex, sGDMode& gdMode) {
+-		if (dwIndex == -1 || dwIndex >= (uint32_t)videoModeCount) {
++		SCGL_LOG("GetVideoModeInfo610 index=%u target=%p count=%d", dwIndex, &gdMode, videoModeCount);
++		if (reinterpret_cast<uintptr_t>(&gdMode) < 0x10000U) {
++			SCGL_LOG("GetVideoModeInfo610 ignored invalid target=%p", &gdMode);
++			SetLastError(DriverError::INVALID_VALUE);
++			return;
++		}
++
++		if (dwIndex == static_cast<uint32_t>(-1) || dwIndex >= static_cast<uint32_t>(videoModeCount)) {
+ 			SetLastError(DriverError::OUT_OF_RANGE);
+ 			return;
+ 		}
+ 
+-		sGDMode tmp = videoModes[dwIndex];
+-		gdMode = tmp;
++		gdMode = videoModes[dwIndex];
+ 	}
+ 
+ 	void cGDriver::GetVideoModeInfo(sGDMode& gdMode) {
+-		return GetVideoModeInfo(currentVideoMode, gdMode);
++		SCGL_LOG("GetVideoModeInfo current=%d target=%p", currentVideoMode, &gdMode);
++		if (reinterpret_cast<uintptr_t>(&gdMode) < 0x10000U) {
++			SCGL_LOG("GetVideoModeInfo ignored invalid target=%p", &gdMode);
++			SetLastError(DriverError::INVALID_VALUE);
++			return;
++		}
++
++		if (currentVideoMode < 0 || currentVideoMode >= videoModeCount) {
++			SetLastError(DriverError::OUT_OF_RANGE);
++			return;
++		}
++
++		gdMode = videoModes[currentVideoMode];
+ 	}
+ 
+ 	void cGDriver::SetVideoMode(int32_t newModeIndex, void* hwndProc, bool showWindow, bool) {
++		SCGL_LOG("SetVideoMode index=%d show=%d", newModeIndex, showWindow);
+ 		if (newModeIndex == -1) {
+-			ShowWindow(static_cast<HWND>(windowHandle), SW_HIDE);
++			if (windowHandle != nullptr) {
++				ShowWindow(static_cast<HWND>(windowHandle), SW_HIDE);
++			}
+ 
+ 			currentVideoMode = -1;
+ 			windowWidth = 0;
+ 			windowHeight = 0;
+ 
+ 			SetLastError(DriverError::OK);
++			SCGL_LOG("SetVideoMode hidden");
+ 		}
+-		else if (newModeIndex < videoModeCount) {
++		else if (newModeIndex >= 0 && newModeIndex < videoModeCount) {
+ 			// Destroy the old window (if we have one) and create a new one, so
+ 			// Windows doesn't get mad at us if we call SetPixelFormat twice.
+ 			sGDMode const& newMode = videoModes[newModeIndex];
+@@ -76,12 +101,14 @@ namespace nSCGL
+ 			currentVideoMode = newModeIndex;
+ 			windowWidth = newMode.width;
+ 			windowHeight = newMode.height;
++			SCGL_LOG("SetVideoMode target mode=%d size=%dx%d fullscreen=%d", newModeIndex, windowWidth, windowHeight, fullscreen);
+ 
+ 			if (hwndProc == nullptr) {
+-				hwndProc = DefWindowProcA;
++				hwndProc = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(DefWindowProcA));
+ 			}
+ 
+ 			DestroyOpenGLContext();
++			SCGL_LOG("SetVideoMode old-context-destroyed");
+ 
+ 			// Try to transition to fullscreen. If we can't, fall back to windowed mode.
+ 			if (fullscreen) {
+@@ -127,6 +154,7 @@ namespace nSCGL
+ 				nullptr,
+ 				GetModuleHandle(nullptr),
+ 				nullptr);
++			SCGL_LOG("SetVideoMode window-created hwnd=%p error=%lu", hwnd, GetLastError());
+ 
+ 			if (hwnd == nullptr) {
+ 				MessageBoxA(NULL, "Failed to create window.", "SCGL video mode error", MB_ICONWARNING);
+@@ -136,6 +164,7 @@ namespace nSCGL
+ 			HDC hdc = GetDC(hwnd);
+ 			windowHandle = hwnd;
+ 			deviceContext = hdc;
++			SCGL_LOG("SetVideoMode dc-acquired hdc=%p", hdc);
+ 
+ 			// Try to set the new pixel format with the OpenGL extension, which lets us guarantee hardware
+ 			// acceleration. If we don't have it, we're probably on ancient hardware but fall back anyway.
+@@ -172,6 +201,7 @@ namespace nSCGL
+ 					DestroyOpenGLContext();
+ 					return;
+ 				}
++				SCGL_LOG("SetVideoMode pixel-format-arb format=%d count=%lu", pixelFormat, numFormats);
+ 
+ 				DescribePixelFormat(hdc, pixelFormat, sizeof(pfd), &pfd);
+ 			}
+@@ -187,6 +217,7 @@ namespace nSCGL
+ 				pfd.iLayerType = PFD_MAIN_PLANE;
+ 
+ 				pixelFormat = ChoosePixelFormat(hdc, &pfd);
++				SCGL_LOG("SetVideoMode pixel-format-legacy format=%d", pixelFormat);
+ 			}
+ 
+ 			if (!SetPixelFormat(hdc, pixelFormat, &pfd)) {
+@@ -194,9 +225,10 @@ namespace nSCGL
+ 				DestroyOpenGLContext();
+ 				return;
+ 			}
++			SCGL_LOG("SetVideoMode pixel-format-set format=%d", pixelFormat);
+ 
+ 			// Now try to create the OpenGL context itself
+-			if (supportedExtensions.createContext) {
++			if (supportedExtensions.createContext && !preferLegacyContext) {
+ 				std::vector<int> contextAttribIList{
+ 					WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
+ 					WGL_CONTEXT_MINOR_VERSION_ARB, 0,
+@@ -214,9 +246,16 @@ namespace nSCGL
+ 
+ 				contextAttribIList.push_back(0);
+ 				glContext = wglCreateContextAttribsARB(hdc, nullptr, contextAttribIList.data());
++				SCGL_LOG("SetVideoMode context-attrib-created context=%p error=%lu", glContext, GetLastError());
++				if (glContext == nullptr) {
++					SCGL_LOG("SetVideoMode context-attrib-fallback legacy");
++					glContext = wglCreateContext(hdc);
++				}
+ 			}
+ 			else {
+ 				glContext = wglCreateContext(hdc);
++				SCGL_LOG("SetVideoMode legacy-context-created context=%p reason=%s", glContext,
++					preferLegacyContext ? "apple-renderer" : "no-wgl-create-context");
+ 			}
+ 
+ 			if (glContext == nullptr) {
+@@ -224,6 +263,7 @@ namespace nSCGL
+ 				DestroyOpenGLContext();
+ 				return;
+ 			}
++			SCGL_LOG("SetVideoMode context-created mode=%d size=%dx%d", newModeIndex, windowWidth, windowHeight);
+ 
+ #ifndef NDEBUG
+ 			{
+@@ -273,7 +313,13 @@ namespace nSCGL
+ 			}
+ #endif
+ 
+-			wglMakeCurrent(hdc, static_cast<HGLRC>(glContext));
++			if (!wglMakeCurrent(hdc, static_cast<HGLRC>(glContext))) {
++				SCGL_LOG("SetVideoMode make-current-failed error=%lu", GetLastError());
++				MessageBoxA(NULL, "Failed to activate an OpenGL context", "SCGL video mode error", MB_ICONWARNING);
++				DestroyOpenGLContext();
++				return;
++			}
++			SCGL_LOG("SetVideoMode make-current-complete");
+ 
+ 			if (supportedExtensions.swapControl) {
+ 				wglSwapIntervalEXT(1);
+@@ -307,29 +353,100 @@ namespace nSCGL
+ 			glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuseLightParams);
+ 			glLightfv(GL_LIGHT0, GL_SPECULAR, diffuseLightParams);
+ 
+-			GLfloat ambientMaterialParams[] = { 1.0f, 0.0f, 0.0f, 1.0f };
+ 			glMaterialfv(GL_FRONT, GL_AMBIENT, ambientLightParams);
+ 
+-			GLfloat diffuseMaterialParams[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+ 			glMaterialfv(GL_FRONT, GL_DIFFUSE, diffuseLightParams);
+ 
+ 			SetViewport();
+ 			SetLastError(DriverError::OK);
++			SCGL_LOG("SetVideoMode complete mode=%d", newModeIndex);
+ 		}
+ 		else {
+ 			SetLastError(DriverError::OUT_OF_RANGE);
+ 		}
+ 	}
+-
+ 	bool cGDriver::IsDeviceReady(void) {
+-		return glContext != nullptr && supportedExtensions.bgraColor;
++		SCGL_LOG("IsDeviceReady=%d initialized=%d context=%p color_array=%d", initialized, initialized, glContext, supportedExtensions.colorArray);
++		return initialized;
+ 	}
+ 
+ 	void cGDriver::Flush(void) {
++		SCGL_LOG("Flush");
++		if (deviceContext == nullptr || glContext == nullptr) {
++			SCGL_LOG("Flush skipped without active context");
++			return;
++		}
++	#ifdef SCGL_DIAGNOSTICS
++		static int frameSampleCount = 0;
++		const int frameIndex = frameSampleCount++;
++		const bool shouldSample = frameIndex < 8 || frameIndex % 120 == 0;
++		auto sampleBuffer = [&](GLenum buffer, const char* bufferName) {
++		if (shouldSample) {
++			static constexpr int kSampleColumns = 17;
++			static constexpr int kSampleRows = 17;
++			unsigned char samples[kSampleColumns * kSampleRows * 4]{};
++			GLint packAlignment = 4;
++			GLint previousReadBuffer = 0;
++			GLint previousDrawBuffer = 0;
++			glGetIntegerv(GL_READ_BUFFER, &previousReadBuffer);
++			glGetIntegerv(GL_DRAW_BUFFER, &previousDrawBuffer);
++			glReadBuffer(buffer);
++			glFinish();
++			glGetIntegerv(GL_PACK_ALIGNMENT, &packAlignment);
++			glPixelStorei(GL_PACK_ALIGNMENT, 1);
++			for (int row = 0; row < kSampleRows; ++row) {
++				for (int column = 0; column < kSampleColumns; ++column) {
++					const int x = (windowWidth - 1) * column / (kSampleColumns - 1);
++					const int y = (windowHeight - 1) * row / (kSampleRows - 1);
++					glReadPixels(x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE,
++						samples + ((row * kSampleColumns + column) * 4));
++				}
++			}
++			glPixelStorei(GL_PACK_ALIGNMENT, packAlignment);
++			glReadBuffer(previousReadBuffer);
++			glDrawBuffer(previousDrawBuffer);
++
++			int nonBlack = 0;
++			uint32_t blackRowMask = 0;
++			uint32_t blackColumnMask = 0;
++			for (int row = 0; row < kSampleRows; ++row) {
++				int nonBlackInRow = 0;
++				for (int column = 0; column < kSampleColumns; ++column) {
++					const unsigned char* pixel = samples + ((row * kSampleColumns + column) * 4);
++					if (pixel[0] > 3 || pixel[1] > 3 || pixel[2] > 3) {
++						++nonBlack;
++						++nonBlackInRow;
++					}
++				}
++				if (nonBlackInRow == 0) blackRowMask |= 1U << row;
++			}
++			for (int column = 0; column < kSampleColumns; ++column) {
++				bool hasNonBlack = false;
++				for (int row = 0; row < kSampleRows; ++row) {
++					const unsigned char* pixel = samples + ((row * kSampleColumns + column) * 4);
++					if (pixel[0] > 3 || pixel[1] > 3 || pixel[2] > 3) {
++						hasNonBlack = true;
++						break;
++					}
++				}
++				if (!hasNonBlack) blackColumnMask |= 1U << column;
++			}
++			const unsigned char* center = samples + (((kSampleRows / 2) * kSampleColumns + (kSampleColumns / 2)) * 4);
++			SCGL_LOG("frame-sample index=%d buffer=%s non_black=%d total=%d black_rows=%08x black_columns=%08x center=%u,%u,%u,%u previous_read=%d previous_draw=%d gl_error=%u",
++				frameIndex, bufferName, nonBlack, kSampleColumns * kSampleRows, blackRowMask, blackColumnMask,
++				center[0], center[1], center[2], center[3], previousReadBuffer, previousDrawBuffer, glGetError());
++		}
++		};
++		sampleBuffer(GL_BACK, "back-before-swap");
++	#endif
+ 		SwapBuffers(static_cast<HDC>(deviceContext));
++	#ifdef SCGL_DIAGNOSTICS
++		sampleBuffer(GL_FRONT, "front-after-swap");
++	#endif
+ 	}
+ 
+ 	void cGDriver::SetViewport(void) {
++		SCGL_LOG("SetViewport default size=%dx%d", windowWidth, windowHeight);
+ 		glViewport(0, 0, windowWidth, windowHeight);
+ 		glDisable(GL_SCISSOR_TEST);
+ 
+@@ -339,6 +456,7 @@ namespace nSCGL
+ 	}
+ 
+ 	void cGDriver::SetViewport(GLint x, GLint y, GLsizei width, GLsizei height) {
++		SCGL_LOG("SetViewport explicit x=%d y=%d size=%dx%d", x, y, width, height);
+ 		glViewport(x, y, width, height);
+ 		glScissor(x, y, width, height);
+ 		glEnable(GL_SCISSOR_TEST);
+@@ -355,4 +473,4 @@ namespace nSCGL
+ 		dimensions[2] = viewportX + viewportWidth;
+ 		dimensions[3] = viewportY + viewportHeight;
+ 	}
+-}
+\ No newline at end of file
++}
+diff --git a/scgl/cIGZGDriver.h b/scgl/cIGZGDriver.h
+index eb9f35a..ab1a35e 100644
+--- a/scgl/cIGZGDriver.h
++++ b/scgl/cIGZGDriver.h
+@@ -185,8 +185,14 @@ public:
+ 	virtual void TexImage2D(uint32_t gdTextureTarget, int32_t, int32_t gdInternalTexFormat, int32_t, int32_t, int32_t, uint32_t gdTexFormat, uint32_t gdType, void const*) = 0;
+ 	virtual void PixelStore(uint32_t gdParameter, int32_t) = 0;
+ 
++#if defined(SCGL_SIMCITY4_610_ABI) && defined(__GNUC__)
++	// MinGW keeps declaration order; the game's MSVC ABI reverses overloads.
++	virtual void TexEnv(uint32_t gdTextureEnvTarget, uint32_t gdTextureEnvParamType, float const*) = 0; // 0x6c
++	virtual void TexEnv(uint32_t gdTextureEnvTarget, uint32_t gdTextureEnvParamType, int32_t gdTextureEnvModeParam) = 0; // 0x70
++#else
+ 	virtual void TexEnv(uint32_t gdTextureEnvTarget, uint32_t gdTextureEnvParamType, int32_t gdTextureEnvModeParam) = 0;
+ 	virtual void TexEnv(uint32_t gdTextureEnvTarget, uint32_t gdTextureEnvParamType, float const*) = 0;
++#endif
+ 	virtual void TexParameter(uint32_t gdTextureTarget, uint32_t gdTextureParamType, int32_t gdTextureParam) = 0;
+ 
+ 	virtual void Fog(uint32_t gdFogParamType, uint32_t gdFogParam) = 0;
+@@ -219,10 +225,17 @@ public:
+ 	virtual void TexStage(uint32_t) = 0; // cc
+ 	virtual void TexStageCoord(uint32_t gdTexCoordSource) = 0; // d0
+ 	virtual void TexStageMatrix(float const*, uint32_t, uint32_t, uint32_t gdTexMatFlags) = 0; // d4
++#if defined(SCGL_SIMCITY4_610_ABI) && defined(__GNUC__)
++	virtual void TexStageCombine(eGDTextureStageCombineScaleParamType gdParamType, eGDTextureStageCombineScaleParam gdParam) = 0; // d8
++	virtual void TexStageCombine(eGDTextureStageCombineOperandType gdParamType, eGDBlend gdBlend) = 0; // dc
++	virtual void TexStageCombine(eGDTextureStageCombineSourceParamType gdParamType, eGDTextureStageCombineSourceParam gdParam) = 0; // e0
++	virtual void TexStageCombine(eGDTextureStageCombineParamType gdParamType, eGDTextureStageCombineModeParam gdParam) = 0; // e4
++#else
+ 	virtual void TexStageCombine(eGDTextureStageCombineParamType gdParamType, eGDTextureStageCombineModeParam gdParam) = 0; // e4
+ 	virtual void TexStageCombine(eGDTextureStageCombineSourceParamType gdParamType, eGDTextureStageCombineSourceParam gdParam) = 0; // dc
+ 	virtual void TexStageCombine(eGDTextureStageCombineOperandType gdParamType, eGDBlend gdBlend) = 0; // e0
+ 	virtual void TexStageCombine(eGDTextureStageCombineScaleParamType gdParamType, eGDTextureStageCombineScaleParam gdParam) = 0; // d8
++#endif
+ 
+ 	virtual void SetTexture(uint32_t, uint32_t) = 0;
+ 	virtual intptr_t GetTexture(uint32_t) = 0;
+@@ -231,9 +244,15 @@ public:
+ 	virtual void SetCombiner(cGDCombiner const& combiner, uint32_t) = 0;
+ 
+ 	virtual uint32_t CountVideoModes(void) const = 0; // 0xfc
+-	virtual void GetVideoModeInfo(uint32_t, sGDMode& gdMode) = 0;
+-	virtual void GetVideoModeInfo(sGDMode& gdMode) = 0;
+-	virtual void SetVideoMode(int32_t, void*, bool, bool) = 0;
++#ifdef SCGL_SIMCITY4_610_ABI
++	virtual void GetVideoModeInfo(sGDMode& gdMode) = 0; // 0x100 in 1.1.610
++	virtual void GetVideoModeInfo(uint32_t, sGDMode& gdMode) = 0; // 0x104 in 1.1.610
++	virtual void SetVideoMode(int32_t, void*, bool, bool) = 0; // 0x108 in 1.1.610
++#else
++	virtual void GetVideoModeInfo(uint32_t, sGDMode& gdMode) = 0; // 0x100
++	virtual void GetVideoModeInfo(sGDMode& gdMode) = 0; // 0x104
++	virtual void SetVideoMode(int32_t, void*, bool, bool) = 0; // 0x108
++#endif
+ 
+ 	virtual void PolygonOffset(int32_t) = 0;
+ 
+@@ -241,11 +260,11 @@ public:
+ 	virtual void StretchBlt(int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t gdTexFormat, uint32_t gdType, void const*, bool, void const*) = 0; // 114
+ 	virtual void BitBltAlpha(int32_t, int32_t, int32_t, int32_t, uint32_t gdTexFormat, uint32_t gdType, void const*, bool, void const*, uint32_t) = 0;
+ 	virtual void StretchBltAlpha(int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t gdTexFormat, uint32_t gdType, void const*, bool, void const*, uint32_t) = 0;
+-	virtual void BitBltAlphaModulate(int32_t, int32_t, int32_t, uint32_t gdTexFormat, uint32_t gdType, void const*, bool, void const*, uint32_t) = 0; // 120
++	virtual void BitBltAlphaModulate(int32_t, int32_t, int32_t, int32_t, uint32_t gdTexFormat, uint32_t gdType, void const*, bool, void const*, uint32_t) = 0; // 120
+ 	virtual void StretchBltAlphaModulate(int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, uint32_t gdTexFormat, uint32_t gdType, void const*, bool, void const*, uint32_t) = 0;
+ 
+-	virtual void SetViewport(void) = 0;
+ 	virtual void SetViewport(int32_t x, int32_t y, int32_t width, int32_t height) = 0;
++	virtual void SetViewport(void) = 0;
+ 	virtual void GetViewport(int32_t dimensions[4]) = 0;
+ 
+ 	virtual char const* GetDriverInfo(void) const = 0;
+@@ -255,4 +274,4 @@ public:
+ 	virtual bool Shutdown(void) = 0;
+ 	virtual bool IsDeviceReady(void) = 0;
+ 	virtual bool Punt(uint32_t, void*) = 0;
+-};
+\ No newline at end of file
++};
+diff --git a/scgl/ext/cGDriver_BufferRegions.cpp b/scgl/ext/cGDriver_BufferRegions.cpp
+index 4431387..6b53b52 100644
+--- a/scgl/ext/cGDriver_BufferRegions.cpp
++++ b/scgl/ext/cGDriver_BufferRegions.cpp
+@@ -17,18 +17,28 @@
+  */
+ 
+ #include <cassert>
++#include <cstdlib>
+ #include "../cGDriver.h"
++#include "../Diagnostics.h"
+ #include "../GLSupport.h"
+ 
+ namespace nSCGL
+ {
++	static bool IsValidBufferRegion(uint32_t region, uint8_t flags) {
++		if (region == 0 || region > MAX_BUFFER_REGIONS) {
++			return false;
++		}
++
++		return (flags & (1U << (region - 1))) != 0;
++	}
++
+ 	int cGDriver::FindFreeBufferRegionIndex(void) {
+ 		if (bufferRegionFlags == UINT8_MAX) {
+ 			// All bits are set, no room left for new regions.
+ 			return -1;
+ 		}
+ 
+-		for (uint32_t i = 0; i < sizeof(uint32_t) * 8; i++) {
++		for (uint32_t i = 0; i < MAX_BUFFER_REGIONS; i++) {
+ 			if ((bufferRegionFlags & (1 << i)) == 0) {
+ 				return i;
+ 			}
+@@ -40,15 +50,37 @@ namespace nSCGL
+ 	}
+ 
+ 	bool cGDriver::BufferRegionEnabled(void) {
+-		return supportedExtensions.bufferRegion && wglCreateBufferRegionARB != nullptr;
++		bool available = initialized &&
++			glBindFramebuffer != nullptr &&
++			glDeleteFramebuffers != nullptr &&
++			glGenFramebuffers != nullptr &&
++			glCheckFramebufferStatus != nullptr &&
++			glBindRenderbuffer != nullptr &&
++			glDeleteRenderbuffers != nullptr &&
++			glGenRenderbuffers != nullptr &&
++			glRenderbufferStorage != nullptr &&
++			glFramebufferRenderbuffer != nullptr &&
++			glBlitFramebuffer != nullptr;
++		const char* disabled = std::getenv("SCGL_DISABLE_BUFFER_REGIONS");
++		if (disabled != nullptr && disabled[0] == '1') {
++			available = false;
++		}
++		SCGL_LOG("BufferRegionEnabled available=%d disabled=%s", available, disabled == nullptr ? "<unset>" : disabled);
++		return available;
+ 	}
+ 
+ 	uint32_t cGDriver::NewBufferRegion(int32_t gdBufferRegionType) {
+ 		static GLenum regionTypeMap[] = { WGL_BACK_COLOR_BUFFER_BIT_ARB, WGL_DEPTH_BUFFER_BIT_ARB };
+ 		SIZE_CHECK_RETVAL(gdBufferRegionType, regionTypeMap, 0);
++		if (!BufferRegionEnabled()) {
++			return 0;
++		}
++		if (currentVideoMode < 0 || currentVideoMode >= videoModeCount || windowWidth <= 0 || windowHeight <= 0) {
++			return 0;
++		}
+ 
+ 		uint32_t bufferRegionIndex = FindFreeBufferRegionIndex();
+-		if (bufferRegionIndex == -1) {
++		if (bufferRegionIndex < 0) {
+ 			return 0;
+ 		}
+ 
+@@ -67,17 +99,27 @@ namespace nSCGL
+ 			renderbufferStorageType = (videoModes[currentVideoMode].depth == 32) ? GL_RGBA8 : GL_RGB5_A1;
+ 			attachmentType = GL_COLOR_ATTACHMENT0;
+ 			framebufferMask = GL_COLOR_BUFFER_BIT;
++			glDrawBuffer(GL_COLOR_ATTACHMENT0);
++			glReadBuffer(GL_COLOR_ATTACHMENT0);
+ 		}
+ 		else {
+ 			renderbufferStorageType = (videoModes[currentVideoMode].depth == 32) ? GL_DEPTH_COMPONENT24 : GL_DEPTH_COMPONENT16;
+ 			attachmentType = GL_DEPTH_ATTACHMENT;
+ 			framebufferMask = GL_DEPTH_BUFFER_BIT;
++			glDrawBuffer(GL_NONE);
++			glReadBuffer(GL_NONE);
+ 		}
+ 
+ 		glRenderbufferStorage(GL_RENDERBUFFER, renderbufferStorageType, windowWidth, windowHeight);
+ 		glFramebufferRenderbuffer(GL_FRAMEBUFFER, attachmentType, GL_RENDERBUFFER, renderbuffer);
+ 
+-		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
++		GLenum framebufferStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
++		if (framebufferStatus != GL_FRAMEBUFFER_COMPLETE) {
++			SCGL_LOG("NewBufferRegion incomplete type=%d status=%u size=%dx%d", gdBufferRegionType,
++				framebufferStatus, windowWidth, windowHeight);
++			glBindFramebuffer(GL_FRAMEBUFFER, 0);
++			glDeleteRenderbuffers(1, &renderbuffer);
++			glDeleteFramebuffers(1, &framebuffer);
+ 			return 0;
+ 		}
+ 
+@@ -87,14 +129,17 @@ namespace nSCGL
+ 		framebufferMasks[bufferRegionIndex] = framebufferMask;
+ 
+ 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
++		glDrawBuffer(GL_BACK);
++		glReadBuffer(GL_BACK);
++		SCGL_LOG("NewBufferRegion type=%d region=%u size=%dx%d", gdBufferRegionType, bufferRegionIndex + 1, windowWidth, windowHeight);
+ 		return bufferRegionIndex + 1;
+ 	}
+ 
+ 	bool cGDriver::DeleteBufferRegion(int32_t region) {
+-		uint32_t bufferRegionIndex = region - 1;
+-		if ((bufferRegionFlags & (1 << bufferRegionIndex)) == 0) {
++		if (!IsValidBufferRegion(static_cast<uint32_t>(region), bufferRegionFlags)) {
+ 			return true;
+ 		}
++		uint32_t bufferRegionIndex = static_cast<uint32_t>(region - 1);
+ 
+ 		glDeleteRenderbuffers(1, &renderbufferHandles[bufferRegionIndex]);
+ 		glDeleteFramebuffers(1, &framebufferHandles[bufferRegionIndex]);
+@@ -104,8 +149,22 @@ namespace nSCGL
+ 	}
+ 
+ 	bool cGDriver::ReadBufferRegion(uint32_t region, GLint dstX, GLint dstY, GLsizei width, GLsizei height, int32_t srcX, int32_t srcY) {
++		if (!IsValidBufferRegion(region, bufferRegionFlags)) {
++			return false;
++		}
+ 		uint32_t bufferRegionIndex = region - 1;
++		SCGL_LOG("ReadBufferRegion region=%u dst=%d,%d size=%dx%d src=%d,%d", region, dstX, dstY, width, height, srcX, srcY);
++		GLenum bufferMask = framebufferMasks[bufferRegionIndex];
++		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+ 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebufferHandles[bufferRegionIndex]);
++		if (bufferMask == GL_COLOR_BUFFER_BIT) {
++			glReadBuffer(GL_BACK);
++			glDrawBuffer(GL_COLOR_ATTACHMENT0);
++		}
++		else {
++			glReadBuffer(GL_NONE);
++			glDrawBuffer(GL_NONE);
++		}
+ 
+ 		RECT glSrc, glDst;
+ 		glSrc.left = srcX;
+@@ -123,8 +182,13 @@ namespace nSCGL
+ 		glSrc.bottom = glSrc.top - height;
+ 		glDst.bottom = glDst.top - height;
+ 
+-		glBlitFramebuffer(glSrc.left, glSrc.top, glSrc.right, glSrc.bottom, glDst.left, glDst.top, glDst.right, glDst.bottom, framebufferMasks[bufferRegionIndex], GL_NEAREST);
++		glBlitFramebuffer(glSrc.left, glSrc.top, glSrc.right, glSrc.bottom, glDst.left, glDst.top, glDst.right, glDst.bottom, bufferMask, GL_NEAREST);
++		SCGL_LOG("ReadBufferRegion blit src=%d,%d,%d,%d dst=%d,%d,%d,%d mask=%u error=%u",
++			glSrc.left, glSrc.top, glSrc.right, glSrc.bottom, glDst.left, glDst.top, glDst.right, glDst.bottom,
++			bufferMask, glGetError());
+ 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
++		glDrawBuffer(GL_BACK);
++		glReadBuffer(GL_BACK);
+ 
+ #ifndef NDEBUG
+ 		if (framebufferMasks[bufferRegionIndex] == GL_COLOR_BUFFER_BIT)
+@@ -185,8 +249,22 @@ namespace nSCGL
+ 	}
+ 
+ 	bool cGDriver::DrawBufferRegion(uint32_t region, GLint srcX, GLint srcY, GLsizei width, GLsizei height, GLint dstX, GLint dstY) {
++		if (!IsValidBufferRegion(region, bufferRegionFlags)) {
++			return false;
++		}
+ 		uint32_t bufferRegionIndex = region - 1;
++		SCGL_LOG("DrawBufferRegion region=%u src=%d,%d size=%dx%d dst=%d,%d", region, srcX, srcY, width, height, dstX, dstY);
++		GLenum bufferMask = framebufferMasks[bufferRegionIndex];
+ 		glBindFramebuffer(GL_READ_FRAMEBUFFER, framebufferHandles[bufferRegionIndex]);
++		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
++		if (bufferMask == GL_COLOR_BUFFER_BIT) {
++			glReadBuffer(GL_COLOR_ATTACHMENT0);
++			glDrawBuffer(GL_BACK);
++		}
++		else {
++			glReadBuffer(GL_NONE);
++			glDrawBuffer(GL_NONE);
++		}
+ 
+ 		RECT glSrc;
+ 		glSrc.left = srcX;
+@@ -200,31 +278,34 @@ namespace nSCGL
+ 		glDst.bottom = windowHeight - dstY;
+ 		glDst.top = glDst.bottom - height;
+ 
+-		glBlitFramebuffer(glSrc.left, glSrc.bottom, glSrc.right, glSrc.top, glDst.left, glDst.bottom, glDst.right, glDst.top, framebufferMasks[bufferRegionIndex], GL_NEAREST);
++		glBlitFramebuffer(glSrc.left, glSrc.bottom, glSrc.right, glSrc.top, glDst.left, glDst.bottom, glDst.right, glDst.top, bufferMask, GL_NEAREST);
++		SCGL_LOG("DrawBufferRegion blit src=%d,%d,%d,%d dst=%d,%d,%d,%d mask=%u error=%u",
++			glSrc.left, glSrc.bottom, glSrc.right, glSrc.top, glDst.left, glDst.bottom, glDst.right, glDst.top,
++			bufferMask, glGetError());
+ 		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
++		glDrawBuffer(GL_BACK);
++		glReadBuffer(GL_BACK);
+ 		return true;
+ 	}
+ 
+ 	bool cGDriver::IsBufferRegion(uint32_t region) {
+-		return (bufferRegionFlags & (1 << (region - 1))) != 0;
++		return IsValidBufferRegion(region, bufferRegionFlags);
+ 	}
+ 
+ 	bool cGDriver::CanDoPartialRegionWrites(void) {
+-		return true;
++		return BufferRegionEnabled();
+ 	}
+ 
+ 	bool cGDriver::CanDoOffsetReads(void) {
+-		return true;
++		return BufferRegionEnabled();
+ 	}
+ 
+ 	bool cGDriver::DeleteAllBufferRegions(void) {
+-		for (size_t i = 0; i < MAX_BUFFER_REGIONS; i++) {
+-			if (IsBufferRegion(i)) {
+-				DeleteBufferRegion(i);
+-			}
++		for (size_t i = 1; i <= MAX_BUFFER_REGIONS; i++) {
++			DeleteBufferRegion(static_cast<int32_t>(i));
+ 		}
+ 
+ 		bufferRegionFlags = 0;
+ 		return true;
+ 	}
+-}
+\ No newline at end of file
++}
+diff --git a/scgl/sGDMode.h b/scgl/sGDMode.h
+index 44c96af..2212915 100644
+--- a/scgl/sGDMode.h
++++ b/scgl/sGDMode.h
+@@ -17,6 +17,7 @@
+  */
+ 
+ #pragma once
++#include <cstddef>
+ #include <stdint.h>
+ 
+ struct sGDMode
+@@ -43,3 +44,8 @@ struct sGDMode
+ 	bool isInitialized;                // 30
+ 	                                   // 34 (end of struct)
+ };
++
++static_assert(sizeof(sGDMode) == 0x34, "SimCity 4 sGDMode ABI drift");
++static_assert(offsetof(sGDMode, isFullscreen) == 0x20, "SimCity 4 sGDMode ABI drift");
++static_assert(offsetof(sGDMode, textureStageCount) == 0x24, "SimCity 4 sGDMode ABI drift");
++static_assert(offsetof(sGDMode, isInitialized) == 0x30, "SimCity 4 sGDMode ABI drift");

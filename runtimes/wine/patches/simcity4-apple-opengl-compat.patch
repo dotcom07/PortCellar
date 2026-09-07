@@ -1,0 +1,91 @@
+diff --git a/dlls/wined3d/adapter_gl.c b/dlls/wined3d/adapter_gl.c
+index 35f73b6..8a9bc43 100644
+--- a/dlls/wined3d/adapter_gl.c
++++ b/dlls/wined3d/adapter_gl.c
+@@ -452,9 +452,9 @@ static BOOL match_apple(const struct wined3d_gl_info *gl_info, struct wined3d_ca
+      * binary may display on a macOS X server via remote X11. So try to detect
+      * the OpenGL implementation by looking at certain Apple extensions. Some
+      * extensions like client storage might be supported on other
+-     * implementations too, but GL_APPLE_flush_render is specific to the
+-     * macOS X window management, and GL_APPLE_ycbcr_422 is QuickTime
+-     * specific. So the chance that other implementations support them is
++     * implementations too, but the APPLE flush extensions are specific to
++     * macOS window management, and GL_APPLE_ycbcr_422 is QuickTime specific.
++     * So the chance that other implementations support this combination is
+      * rather small since Win32 QuickTime uses DirectDraw, not OpenGL.
+      *
+      * This test has been moved into wined3d_guess_gl_vendor(). */
+@@ -1159,11 +1159,15 @@ static enum wined3d_gl_vendor wined3d_guess_gl_vendor(const struct wined3d_gl_in
+      * Detecting this isn't really easy. The vendor string doesn't mention Apple. Compile-time checks
+      * aren't sufficient either because a Linux binary may display on a macos X server via remote X11.
+      * So try to detect the GL implementation by looking at certain Apple extensions. Some extensions
+-     * like client storage might be supported on other implementations too, but GL_APPLE_flush_render
+-     * is specific to the Mac OS X window management, and GL_APPLE_ycbcr_422 is QuickTime specific. So
+-     * the chance that other implementations support them is rather small since Win32 QuickTime uses
+-     * DirectDraw, not OpenGL. */
+-    if (gl_info->supported[APPLE_FLUSH_RENDER]
++     * like client storage might be supported on other implementations too, but the APPLE flush
++     * extensions are specific to Mac OS X window management, and GL_APPLE_ycbcr_422 is QuickTime
++     * specific. So the chance that other implementations support this combination is rather small
++     * since Win32 QuickTime uses DirectDraw, not OpenGL. */
++    if (strstr(gl_vendor_string, "Apple") || strstr(gl_renderer, "Apple"))
++        return GL_VENDOR_APPLE;
++
++    if ((gl_info->supported[APPLE_FLUSH_RENDER]
++            || gl_info->supported[APPLE_FLUSH_BUFFER_RANGE])
+             && (gl_info->supported[APPLE_YCBCR_422] || gl_info->supported[APPLE_RGB_422]))
+         return GL_VENDOR_APPLE;
+ 
+@@ -1195,6 +1199,11 @@ static enum wined3d_gl_vendor wined3d_guess_gl_vendor(const struct wined3d_gl_in
+ 
+ static enum wined3d_pci_vendor wined3d_guess_card_vendor(const char *gl_vendor_string, const char *gl_renderer)
+ {
++    /* Wine's legacy Apple OpenGL compatibility table is keyed by the Intel
++     * PCI vendor, even though the renderer string is supplied by macOS. */
++    if (strstr(gl_vendor_string, "Apple") || strstr(gl_renderer, "Apple"))
++        return HW_VENDOR_INTEL;
++
+     if (strstr(gl_vendor_string, "NVIDIA")
+             || strstr(gl_vendor_string, "Nouveau")
+             || strstr(gl_vendor_string, "nouveau"))
+diff --git a/dlls/wined3d/utils.c b/dlls/wined3d/utils.c
+index 335ac6b..d8ebc94 100644
+--- a/dlls/wined3d/utils.c
++++ b/dlls/wined3d/utils.c
+@@ -2684,6 +2684,14 @@ static void init_format_fbo_compat_info(const struct wined3d_adapter *adapter,
+     unsigned int i, type;
+     GLuint fbo;
+ 
++    /* Apple's OpenGL compatibility layer can fail Wine's exhaustive FBO
++     * format probe. Keep the static table for the legacy SC4 path. */
++    if (gl_info->supported[APPLE_RGB_422] || gl_info->supported[APPLE_YCBCR_422])
++    {
++        TRACE("Skipping dynamic FBO format probing for Apple OpenGL.\n");
++        return;
++    }
++
+     if (gl_info->supported[ARB_INTERNALFORMAT_QUERY2])
+     {
+         for (i = 0; i < WINED3D_FORMAT_COUNT; ++i)
+diff --git a/dlls/winemac.drv/opengl.c b/dlls/winemac.drv/opengl.c
+index 6b2ec0b..7282755 100644
+--- a/dlls/winemac.drv/opengl.c
++++ b/dlls/winemac.drv/opengl.c
+@@ -1461,13 +1461,15 @@ static void make_context_current(struct macdrv_context *context, BOOL read)
+ 
+     if (read)
+     {
+-        if (context->read_hwnd) NtUserGetClientRect(context->read_hwnd, &view_rect, NtUserGetDpiForWindow(context->read_hwnd));
++        if (context->read_hwnd) NtUserGetClientRect(context->read_hwnd, &view_rect,
++                                                    NtUserGetWinMonitorDpi(context->read_hwnd, MDT_RAW_DPI));
+         view = context->read_view;
+         pbuffer = context->read_pbuffer;
+     }
+     else
+     {
+-        if (context->draw_hwnd) NtUserGetClientRect(context->draw_hwnd, &view_rect, NtUserGetDpiForWindow(context->draw_hwnd));
++        if (context->draw_hwnd) NtUserGetClientRect(context->draw_hwnd, &view_rect,
++                                                    NtUserGetWinMonitorDpi(context->draw_hwnd, MDT_RAW_DPI));
+         view = context->draw_view;
+         pbuffer = context->draw_pbuffer;
+     }
