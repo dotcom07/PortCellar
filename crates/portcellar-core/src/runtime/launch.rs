@@ -62,19 +62,7 @@ pub(crate) fn game_installer_plan_for(
 }
 
 pub fn game_launch_plan(profile: &dyn GameProfile, mode: LaunchMode) -> Result<CommandPlan> {
-    game_launch_plan_with_stage(profile, mode, true)
-}
-
-pub fn game_launch_plan_with_stage(
-    profile: &dyn GameProfile,
-    mode: LaunchMode,
-    materialize_stage: bool,
-) -> Result<CommandPlan> {
     let steam = inspect_steam();
-
-    if materialize_stage && matches!(mode, LaunchMode::WineDirect | LaunchMode::WineSteam) {
-        prepare_game_runtime_stage(profile)?;
-    }
 
     match mode {
         LaunchMode::Steam => {
@@ -142,6 +130,16 @@ pub fn game_launch_plan_with_stage(
             game_wine_direct_launch_plan(profile, &runtime)
         }
     }
+}
+
+/// Compatibility alias. Both values of the former materialization flag are
+/// read-only; callers must explicitly prepare state before execution.
+pub fn game_launch_plan_with_stage(
+    profile: &dyn GameProfile,
+    mode: LaunchMode,
+    _materialize_stage: bool,
+) -> Result<CommandPlan> {
+    game_launch_plan(profile, mode)
 }
 
 pub fn wine_steam_login_plan(legacy_login: bool) -> Result<CommandPlan> {

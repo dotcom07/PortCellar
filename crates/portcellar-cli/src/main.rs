@@ -1,10 +1,10 @@
 use portcellar_core::{
     analyze_game, analyze_local_game, apply_game_runtime_profile, apply_isaac_runtime_profile,
     apply_steam_cef_patch, apply_steam_session_reset, collect_porting_analysis,
-    collect_steam_client_analysis, doctor_report, game_launch_plan_with_stage,
-    game_runtime_profile_plan, inspect_game_runtime, inspect_game_runtime_preflight,
-    isaac_launch_plan, isaac_profile, isaac_runtime_profile_plan, kill_wine_steam_processes,
-    run_plan, run_plan_detached, run_plan_detached_with_log, state_root, wine_steam_cef_patch_plan,
+    collect_steam_client_analysis, doctor_report, game_launch_plan, game_runtime_profile_plan,
+    inspect_game_runtime, inspect_game_runtime_preflight, isaac_launch_plan, isaac_profile,
+    isaac_runtime_profile_plan, kill_wine_steam_processes, prepare_game_runtime_stage, run_plan,
+    run_plan_detached, run_plan_detached_with_log, state_root, wine_steam_cef_patch_plan,
     wine_steam_configure_plans, wine_steam_configure_plans_for, wine_steam_login_plan,
     wine_steam_login_plan_for, wine_steam_session_reset_plan, wine_steam_stop_plan,
     CompatibilityStatus, EngineKind, GameProfile, GenericGameProfile, GenericGameProfileCatalog,
@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 mod game_bottle;
 mod game_evidence;
 mod game_installer;
+mod game_modules;
 mod game_observer;
 mod game_steam;
 mod game_support;
@@ -64,6 +65,9 @@ fn run(args: Vec<OsString>) -> Result<()> {
         [area, cmd, rest @ ..] if area == "isaac" && cmd == "play" => isaac_play(rest),
         [area, cmd, rest @ ..] if area == "isaac" && cmd == "launch" => launch(rest),
         [area, cmd, rest @ ..] if area == "game" && cmd == "profiles" => game_profiles(rest),
+        [area, cmd, rest @ ..] if area == "game" && (cmd == "modules" || cmd == "module") => {
+            game_modules::inspect(rest, cmd == "module")
+        }
         [area, cmd, rest @ ..] if area == "game" && cmd == "evidence" => {
             game_evidence::evidence(rest)
         }
@@ -139,6 +143,8 @@ fn print_help() {
         "  portcellar isaac launch [--mode steam|native|direct|wine-steam|wine-direct] [--dry-run] [--detach] [--wait] [--wait-login] [--legacy-login] [--capture-wine-log] [--login-timeout-seconds N] [--launch-timeout-seconds N] [--stable-seconds N]"
     );
     println!("  portcellar game profiles [--root PATH]");
+    println!("  portcellar game modules [--root PATH]");
+    println!("  portcellar game module [--root PATH] --id MODULE");
     println!("  portcellar game evidence [--app-id APPID] [--root PATH]");
     println!(
         "  portcellar game mutation-plan [--from-profile PATH | --from-catalog APPID] --snapshot-id ID [--profile-root PATH]"
@@ -1254,6 +1260,12 @@ fn game_launch(args: &[String]) -> Result<()> {
     }
 
     if matches!(mode, LaunchMode::WineSteam | LaunchMode::WineDirect) {
+        // Validate the launch before staging, then resolve it again below so
+        // execution uses the prepared copy rather than the original files.
+        game_launch_plan(&profile, mode)?;
+        if !dry_run {
+            prepare_game_runtime_stage(&profile)?;
+        }
         run_and_print_wine_configure_for(dry_run, &profile)?;
         run_and_print_game_profile(dry_run, &profile)?;
     }
@@ -1270,7 +1282,7 @@ fn game_launch(args: &[String]) -> Result<()> {
         println!("Steam login plan: {}", login_plan.display());
     }
 
-    let plan = game_launch_plan_with_stage(&profile, mode, !dry_run)?;
+    let plan = game_launch_plan(&profile, mode)?;
     println!("{}", plan.display());
     if !dry_run {
         if let Some(login_plan) = &login_plan {

@@ -32,6 +32,11 @@ jobs:
       - name: Load the SimCity 4 profile catalog
         run: cargo run --locked --quiet -- game profiles --root modules/simcity-4/profiles
 
+      - name: Inspect public modules
+        run: |
+          cargo run --locked --quiet -- game modules --root modules
+          cargo run --locked --quiet -- game module --root modules --id binding-of-isaac-rebirth
+
       - name: Check SCGL verifier failure handling
         shell: bash
         run: |

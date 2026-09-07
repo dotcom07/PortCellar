@@ -1,0 +1,16 @@
+# Descriptive baseline. Use the existing `isaac` commands for execution until
+# generic profiles support Isaac's save-log discovery and Documents fallback.
+format_version = "game-profile-v1"
+app_id = "250900"
+name = "The Binding of Isaac: Rebirth"
+bottle_name = "game-250900"
+windows_exe = "isaac-ng.exe"
+windows_depot_id = "250902"
+install_dir_hint = "The Binding of Isaac Rebirth"
+runtime_profile_version = "isaac-catalog-v1"
+wine_windows_version = "win10"
+graphics_backend = "dxmt"
+dxmt_config = "d3d11.preferredMaxFrameRate=60;"
+steam_integration = "required"
+steam_cef_policy = "cross-over-compatible"
+capabilities = ["steamworks", "open-gl", "video-playback", "audio"]

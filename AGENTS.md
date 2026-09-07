@@ -3,9 +3,10 @@
 ## Current state
 
 This repository contains the imported PortCellar runtime foundation and the
-first SimCity 4 module under review. The implementation currently has two
-crates, `portcellar-cli` and `portcellar-core`; the larger proposed crate split,
-module descriptor contract, CI, and turnkey distribution are not implemented.
+SimCity 4 and Isaac modules under review. The implementation currently has two
+crates, `portcellar-cli` and `portcellar-core`, a read-only module catalog, and
+foundation CI. The larger proposed crate split, managed execution ownership,
+Steam fingerprint invalidation, and turnkey distribution are not implemented.
 Do not describe proposed commands, schemas, packages, or verification results as
 implemented features.
 
@@ -52,6 +53,8 @@ The imported workspace has been checked with:
 - `cargo fmt --all -- --check`
 - `cargo test --all-targets`
 - the SimCity 4 profile catalog loading command documented in `README.md`
+- the module catalog/inspection commands and synthetic validation fixtures
+- read-only launch plans, stage reuse/refusal, and failed-stage preservation
 - the SCGL checker with normal and optimized Python, including invalid-input
   failure behavior
 - the synthetic dry-run installer path, confirming it does not create state

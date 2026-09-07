@@ -44,6 +44,10 @@ display mode, scenario, and outcome.
 
 ## For developers
 
+Inspect the descriptor and its portable profile with
+`cargo run -- game module --root modules --id simcity-4` from the repository root.
+This catalog entry does not install SCGL or bind local game/engine paths.
+
 The original game expects a different C++ virtual-table layout from the one
 produced by the unmodified MinGW build of SCGL. Six texture-related entries were
 reordered for the 1.1.610 ABI. The aggregate SCGL patch also contains the

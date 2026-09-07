@@ -11,6 +11,74 @@ use serde::{Deserialize, Serialize};
 
 pub const GENERIC_GAME_PROFILE_FORMAT_VERSION: &str = "game-profile-v1";
 
+// The public module boundary is strict; legacy direct profiles remain permissive.
+pub(super) fn public_module_profile(text: &str) -> Result<GenericGameProfile> {
+    let value: toml::Table = toml::from_str(text)
+        .map_err(|error| PortCellarError::Message(format!("invalid module profile: {error}")))?;
+    reject_unknown_fields(
+        &value,
+        &[
+            "format_version",
+            "app_id",
+            "name",
+            "bottle_name",
+            "windows_exe",
+            "launch_arguments",
+            "windows_depot_id",
+            "install_dir_hint",
+            "windows_install_path",
+            "runtime_options_path",
+            "runtime_profile_version",
+            "wine_engine_path",
+            "wine_windows_version",
+            "graphics_backend",
+            "dxmt_config",
+            "steam_integration",
+            "steam_cef_policy",
+            "runtime_options",
+            "runtime_environment",
+            "runtime_artifacts",
+            "binary_patches",
+            "capabilities",
+            "dependencies",
+        ],
+    )?;
+    for (field, keys) in [
+        (
+            "runtime_artifacts",
+            &["id", "source_path", "target_path", "architecture"][..],
+        ),
+        ("binary_patches", &["target_path", "kind"][..]),
+    ] {
+        if let Some(records) = value.get(field).and_then(toml::Value::as_array) {
+            for record in records {
+                if let Some(table) = record.as_table() {
+                    reject_unknown_fields(table, keys)?;
+                }
+            }
+        }
+    }
+    let profile = GenericGameProfile::from_profile_toml(text)?;
+    if value.contains_key("windows_install_path")
+        || value.contains_key("wine_engine_path")
+        || !profile.runtime_artifacts().is_empty()
+    {
+        return Err(PortCellarError::Message(
+            "public module profiles must not contain host paths or runtime artifacts".to_string(),
+        ));
+    }
+    Ok(profile)
+}
+
+fn reject_unknown_fields(table: &toml::Table, fields: &[&str]) -> Result<()> {
+    if let Some(key) = table.keys().find(|key| !fields.contains(&key.as_str())) {
+        return Err(PortCellarError::Message(format!(
+            "unknown module profile field: {key}"
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenericGameProfileDocument {
     pub format_version: String,

@@ -1,0 +1,13 @@
+format_version = "portcellar-module-v1"
+id = "binding-of-isaac-rebirth"
+name = "The Binding of Isaac: Rebirth"
+revision = 1
+
+[[variants]]
+id = "windows-steam"
+name = "Windows Steam distribution (build not pinned)"
+stores = { steam = "250900" }
+
+[[variants.profiles]]
+id = "wine-steam"
+path = "profiles/windows-steam.toml"

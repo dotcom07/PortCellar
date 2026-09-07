@@ -3,6 +3,7 @@ use crate::runtime::profile::prefix_path_from_windows_path;
 use std::env;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const STAGE_MARKER: &str = ".portcellar-stage";
 
@@ -17,27 +18,141 @@ pub fn prepare_game_runtime_stage(profile: &dyn GameProfile) -> Result<Option<Ga
         return Ok(None);
     };
     let source_root = local_game_root(profile)?;
+    reject_symlink_components(&stage.game_root)?;
+    let destination = absolute_path(&stage.game_root)?;
+    if directory_contains(&source_root, &destination)?
+        || directory_contains(&destination, &source_root)?
+    {
+        return Err(PortCellarError::Message(
+            "source and stage must not overlap".into(),
+        ));
+    }
     validate_artifacts(profile, &source_root)?;
 
     if stage_is_ready(&stage, profile, &source_root) && !env_flag("PORTCELLAR_STAGE_REFRESH") {
         return Ok(Some(stage));
     }
 
-    if stage.game_root.exists() {
-        fs::remove_dir_all(&stage.game_root)?;
+    if stage.game_root.try_exists()? {
+        return Err(PortCellarError::Message(format!(
+            "existing stage retained at {}; refresh/rebuild requires manual save reconciliation",
+            stage.game_root.display()
+        )));
     }
     if let Some(parent) = stage.game_root.parent() {
         fs::create_dir_all(parent)?;
     }
 
-    copy_tree(&source_root, &stage.game_root)?;
-    install_artifacts(profile, &stage.game_root)?;
-    apply_binary_patches(profile, &stage.game_root)?;
-    fs::write(
-        stage.game_root.join(STAGE_MARKER),
-        stage_marker(profile, &source_root)?,
-    )?;
+    let pending = unique_pending_stage(&stage)?;
+    let result = (|| -> Result<()> {
+        let marker = stage_marker(profile, &source_root)?;
+        copy_tree(&source_root, &pending.game_root)?;
+        install_artifacts(profile, &pending.game_root)?;
+        apply_binary_patches(profile, &pending.game_root)?;
+        fs::write(pending.game_root.join(STAGE_MARKER), marker)?;
+        if !stage_is_ready(&pending, profile, &source_root) {
+            return Err(PortCellarError::Message(
+                "prepared stage failed validation".into(),
+            ));
+        }
+        reject_symlink_components(&stage.game_root)?;
+        if stage.game_root.try_exists()? {
+            return Err(PortCellarError::Message(
+                "stage appeared during preparation; refusing replacement".into(),
+            ));
+        }
+        // Managed resource locking and external-process ownership are separate
+        // work. This refuses existing copies; it is not a concurrency boundary.
+        fs::rename(&pending.game_root, &stage.game_root)?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        return Err(PortCellarError::Message(format!(
+            "{error}; partial stage retained at {}",
+            pending.game_root.display()
+        )));
+    }
     Ok(Some(stage))
+}
+
+fn unique_pending_stage(stage: &GameRuntimeStage) -> Result<GameRuntimeStage> {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    loop {
+        let game_root = stage.root.join(format!(
+            ".game-pending-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        match fs::create_dir(&game_root) {
+            Ok(()) => {
+                return Ok(GameRuntimeStage {
+                    root: stage.root.clone(),
+                    game_root,
+                })
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+fn absolute_path(path: &Path) -> Result<PathBuf> {
+    if path
+        .components()
+        .any(|part| matches!(part, Component::ParentDir))
+    {
+        return Err(PortCellarError::Message(
+            "stage paths must not contain '..'".into(),
+        ));
+    }
+    Ok(if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        env::current_dir()?.join(path)
+    })
+}
+
+fn directory_contains(root: &Path, path: &Path) -> Result<bool> {
+    if path.starts_with(root) {
+        return Ok(true);
+    }
+    // Filesystem identities catch case aliases on macOS that lexical paths miss.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let identity = match fs::metadata(root) {
+            Ok(metadata) => (metadata.dev(), metadata.ino()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        for ancestor in path.ancestors() {
+            match fs::metadata(ancestor) {
+                Ok(metadata) if (metadata.dev(), metadata.ino()) == identity => return Ok(true),
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn reject_symlink_components(path: &Path) -> Result<()> {
+    let absolute = absolute_path(path)?;
+    for ancestor in absolute.ancestors() {
+        match fs::symlink_metadata(ancestor) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(PortCellarError::Message(format!(
+                    "refusing stage symlink: {}",
+                    ancestor.display()
+                )))
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn game_runtime_stage_for(profile: &dyn GameProfile) -> Option<GameRuntimeStage> {
@@ -82,7 +197,8 @@ fn local_game_root(profile: &dyn GameProfile) -> Result<PathBuf> {
             root.display()
         )));
     }
-    Ok(root)
+    reject_symlink_components(&root)?;
+    Ok(root.canonicalize()?)
 }
 
 fn validate_artifacts(profile: &dyn GameProfile, source_root: &Path) -> Result<()> {
@@ -175,6 +291,11 @@ fn apply_binary_patches(profile: &dyn GameProfile, stage_root: &Path) -> Result<
 }
 
 fn stage_is_ready(stage: &GameRuntimeStage, profile: &dyn GameProfile, source_root: &Path) -> bool {
+    if reject_symlink_components(&stage.game_root.join(STAGE_MARKER)).is_err()
+        || reject_symlink_components(&stage.game_root.join(profile.windows_exe())).is_err()
+    {
+        return false;
+    }
     if !stage.game_root.is_dir() || !stage.game_root.join(STAGE_MARKER).is_file() {
         return false;
     }
@@ -192,16 +313,15 @@ fn stage_is_ready(stage: &GameRuntimeStage, profile: &dyn GameProfile, source_ro
         return false;
     }
     let artifacts_ready = profile.runtime_artifacts().iter().all(|artifact| {
-        stage
-            .game_root
-            .join(artifact_target_path(artifact))
-            .is_file()
+        let target = stage.game_root.join(artifact_target_path(artifact));
+        reject_symlink_components(&target).is_ok() && target.is_file()
     });
     let patches_ready = profile.binary_patches().iter().all(|patch| {
         let target = stage
             .game_root
             .join(normalize_relative_path(&patch.target_path));
-        target.is_file()
+        reject_symlink_components(&target).is_ok()
+            && target.is_file()
             && match patch.kind {
                 crate::games::GameBinaryPatchKind::LargeAddressAware => {
                     large_address_aware_enabled(&target).unwrap_or(false)
@@ -346,6 +466,11 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
             copy_tree(&source_path, &destination_path)?;
         } else if file_type.is_file() {
             fs::copy(source_path, destination_path)?;
+        } else {
+            return Err(PortCellarError::Message(format!(
+                "refusing to stage special file: {}",
+                source_path.display()
+            )));
         }
     }
     Ok(())

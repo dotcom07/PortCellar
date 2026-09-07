@@ -1,0 +1,12 @@
+format_version = "portcellar-module-v1"
+id = "simcity-4"
+name = "SimCity 4"
+revision = 1
+
+[[variants]]
+id = "windows-1-1-610"
+name = "Windows Deluxe 1.1.610.0 (x86)"
+
+[[variants.profiles]]
+id = "scgl"
+path = "profiles/windows-1.1.610.toml"

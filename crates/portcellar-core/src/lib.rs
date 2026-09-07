@@ -29,7 +29,8 @@ pub use command::{run_plan, run_plan_detached, run_plan_detached_with_log};
 pub use error::{PortCellarError, Result};
 pub use games::{
     isaac_profile, load_generic_game_profile, GameBinaryPatch, GameBinaryPatchKind, GameCapability,
-    GameProfile, GameRuntimeArtifact, GameRuntimePolicy, GenericGameProfile,
+    GameModule, GameModuleCatalog, GameModuleDescriptor, GameModuleProfileReference,
+    GameModuleVariant, GameProfile, GameRuntimeArtifact, GameRuntimePolicy, GenericGameProfile,
     GenericGameProfileCatalog, GenericGameProfileCatalogEntry, GenericGameProfileDocument,
     GraphicsBackend, IsaacProfile, RuntimeDependency, SteamCefPolicy, SteamIntegration,
     GENERIC_GAME_PROFILE_FORMAT_VERSION,

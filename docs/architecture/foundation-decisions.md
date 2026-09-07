@@ -5,7 +5,21 @@ runtime guarantees. Reviewed against foundation commit `45da0cd`.
 This document refines the [architecture proposal](portcellar-plan.md) where
 specified below. The two existing crates remain the implementation boundary.
 
-## Priority and actual gaps
+## Implementation status
+
+The signal-termination fix and foundation CI are implemented. The read-only
+module catalog now consumes SC4 and Isaac descriptors using the contract below.
+Launch planning no longer materializes stages; execution explicitly prepares
+them. Existing stages requiring refresh/rebuild are retained and refused, and
+absent stages are built and validated in a unique sibling before activation.
+Synthetic tests cover these paths; they do not establish gameplay compatibility.
+
+Managed installation identity, resource locks, supervised lifetime, replacement
+journals/save reconciliation, and Steam fingerprint/recovery guards remain
+unimplemented. In particular, staging path checks and rename are not a shared
+ownership or concurrency boundary. Legacy execution retains that limitation.
+
+## Baseline gaps and selected behavior
 
 Safe execution precedes expanding the public module execution API.
 
@@ -34,7 +48,7 @@ The first new operations are read-only `game modules --root modules` and
 and display their referenced profiles. They do not launch, install, fetch,
 select a user's installation, or execute module scripts.
 
-Proposed complete example for the first descriptor:
+Complete example for the first descriptor:
 
 ```toml
 format_version = "portcellar-module-v1"
@@ -43,7 +57,7 @@ name = "SimCity 4"
 revision = 1
 
 [[variants]]
-id = "windows-1.1.610"
+id = "windows-1-1-610"
 name = "Windows Deluxe 1.1.610.0 (x86)"
 
 [[variants.profiles]]

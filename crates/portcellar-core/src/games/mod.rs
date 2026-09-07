@@ -6,6 +6,12 @@ use serde::{Deserialize, Serialize};
 mod catalog;
 mod generic;
 mod isaac;
+mod module;
+
+pub use module::{
+    GameModule, GameModuleCatalog, GameModuleDescriptor, GameModuleProfileReference,
+    GameModuleVariant,
+};
 
 pub use catalog::{GenericGameProfileCatalog, GenericGameProfileCatalogEntry};
 pub use generic::{
