@@ -28,6 +28,10 @@ targets until implemented and tested; do not infer them from the agent guide.
   to match a proposed directory tree.
 - Keep game-specific settings in modules and shared execution behavior in the
   runtime. A Steam App ID is optional store metadata, not a universal game ID.
+- When adding a game, update its module README and `modules/README.md`. Keep
+  the root README focused on project-wide guidance and the catalog link.
+  Module presence or descriptor validation does not establish compatibility;
+  keep verification details and evidence in the game module.
 - Separate hypotheses, observations, and reviewed compatibility claims. A
   surviving process does not prove rendering or gameplay. Identify manual
   observations explicitly.
