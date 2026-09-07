@@ -5,8 +5,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub fn wine_steam_cef_patch_plan() -> Result<SteamCefPatchPlan> {
-    let report = doctor_report();
-    let runtime = &report.wine_steam;
+    wine_steam_cef_patch_plan_for(&isaac_profile())
+}
+
+pub fn wine_steam_cef_patch_plan_for(profile: &dyn GameProfile) -> Result<SteamCefPatchPlan> {
+    let runtime = inspect_wine_steam_runtime_for(profile);
     let steam_exe = runtime.steam_exe.as_ref().ok_or_else(|| {
         PortCellarError::Message(
             "Windows Steam was not found in the configured Wine prefix".to_string(),

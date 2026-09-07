@@ -45,10 +45,10 @@ pub use runtime::{
     kill_wine_steam_processes, load_game_compatibility_evidence, observe_game_runtime,
     prepare_game_runtime_stage, steam_session_ready, wine_bottle_mutation_plan,
     wine_bottle_rollback_plan, wine_bottle_snapshot_plan, wine_dependency_plans_for,
-    wine_steam_cef_patch_plan, wine_steam_configure_plans, wine_steam_configure_plans_for,
-    wine_steam_install_plan, wine_steam_login_plan, wine_steam_login_plan_for,
-    wine_steam_session_reset_plan, wine_steam_stop_plan, write_game_compatibility_evidence,
-    write_game_smoke_evidence,
+    wine_steam_cef_patch_plan, wine_steam_cef_patch_plan_for, wine_steam_configure_plans,
+    wine_steam_configure_plans_for, wine_steam_install_plan, wine_steam_login_plan,
+    wine_steam_login_plan_for, wine_steam_session_reset_plan, wine_steam_stop_plan,
+    write_game_compatibility_evidence, write_game_smoke_evidence,
 };
 pub use state::state_root;
 pub use types::{

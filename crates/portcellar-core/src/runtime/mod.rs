@@ -41,7 +41,9 @@ pub use smoke::{
     write_game_smoke_evidence,
 };
 pub use stage::{prepare_game_runtime_stage, GameRuntimeStage};
-pub use steam_cef::{apply_steam_cef_patch, wine_steam_cef_patch_plan};
+pub use steam_cef::{
+    apply_steam_cef_patch, wine_steam_cef_patch_plan, wine_steam_cef_patch_plan_for,
+};
 pub use wine::{wine_steam_configure_plans, wine_steam_configure_plans_for};
 
 pub(crate) use launch::steam_wine_args;

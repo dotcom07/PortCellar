@@ -5,10 +5,10 @@ use portcellar_core::{
     inspect_game_runtime, inspect_game_runtime_preflight, isaac_launch_plan, isaac_profile,
     isaac_runtime_profile_plan, kill_wine_steam_processes, prepare_game_runtime_stage, run_plan,
     run_plan_detached, run_plan_detached_with_log, state_root, wine_steam_cef_patch_plan,
-    wine_steam_configure_plans, wine_steam_configure_plans_for, wine_steam_login_plan,
-    wine_steam_login_plan_for, wine_steam_session_reset_plan, wine_steam_stop_plan,
-    CompatibilityStatus, EngineKind, GameProfile, GenericGameProfile, GenericGameProfileCatalog,
-    LaunchMode, Result, SteamClientAnalysisOptions, SteamIntegration,
+    wine_steam_cef_patch_plan_for, wine_steam_configure_plans, wine_steam_configure_plans_for,
+    wine_steam_login_plan, wine_steam_login_plan_for, wine_steam_session_reset_plan,
+    wine_steam_stop_plan, CompatibilityStatus, EngineKind, GameProfile, GenericGameProfile,
+    GenericGameProfileCatalog, LaunchMode, Result, SteamClientAnalysisOptions, SteamIntegration,
 };
 use std::env;
 use std::ffi::OsString;
@@ -890,7 +890,7 @@ fn launch(args: &[String]) -> Result<()> {
         run_and_print_wine_configure(dry_run)?;
     }
     if mode == LaunchMode::WineSteam {
-        run_and_print_steam_cef_patch(dry_run, true)?;
+        run_and_print_steam_cef_patch(dry_run, true, None)?;
     }
     if matches!(mode, LaunchMode::WineSteam | LaunchMode::WineDirect) {
         run_and_print_isaac_profile(dry_run)?;
@@ -1270,7 +1270,7 @@ fn game_launch(args: &[String]) -> Result<()> {
         run_and_print_game_profile(dry_run, &profile)?;
     }
     if mode == LaunchMode::WineSteam {
-        run_and_print_steam_cef_patch(dry_run, true)?;
+        run_and_print_steam_cef_patch(dry_run, true, Some(&profile))?;
     }
 
     let login_plan = if wait_login {
@@ -1380,7 +1380,7 @@ fn isaac_run(args: &[String]) -> Result<()> {
     }
 
     run_and_print_wine_configure(dry_run)?;
-    run_and_print_steam_cef_patch(dry_run, true)?;
+    run_and_print_steam_cef_patch(dry_run, true, None)?;
     run_and_print_isaac_profile(dry_run)?;
 
     let login_plan = wine_steam_login_plan(legacy_login)?;
@@ -1551,7 +1551,7 @@ fn steam_login(args: &[String]) -> Result<()> {
     }
 
     run_and_print_wine_configure(dry_run)?;
-    run_and_print_steam_cef_patch(dry_run, true)?;
+    run_and_print_steam_cef_patch(dry_run, true, None)?;
 
     let plan = wine_steam_login_plan(legacy_login)?;
     println!("{}", plan.display());
@@ -1734,11 +1734,15 @@ fn steam_patch_cef(args: &[String]) -> Result<()> {
         }
     }
 
-    run_and_print_steam_cef_patch(dry_run, false)
+    run_and_print_steam_cef_patch(dry_run, false, None)
 }
 
-fn run_and_print_steam_cef_patch(dry_run: bool, only_if_needed: bool) -> Result<()> {
-    let plan = wine_steam_cef_patch_plan()?;
+fn run_and_print_steam_cef_patch(
+    dry_run: bool,
+    only_if_needed: bool,
+    profile: Option<&dyn GameProfile>,
+) -> Result<()> {
+    let plan = steam_cef_plan(profile)?;
     let needs_patch = plan
         .cef_targets
         .iter()
@@ -1776,6 +1780,13 @@ fn run_and_print_steam_cef_patch(dry_run: bool, only_if_needed: bool) -> Result<
     }
 
     Ok(())
+}
+
+fn steam_cef_plan(profile: Option<&dyn GameProfile>) -> Result<portcellar_core::SteamCefPatchPlan> {
+    match profile {
+        Some(profile) => wine_steam_cef_patch_plan_for(profile),
+        None => wine_steam_cef_patch_plan(),
+    }
 }
 
 fn run_and_print_wine_configure(dry_run: bool) -> Result<()> {
