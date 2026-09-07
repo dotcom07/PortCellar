@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  foundation:
+    name: Rust and profile checks
+    runs-on: macos-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run tests
+        run: cargo test --locked --all-targets
+
+      - name: Load the SimCity 4 profile catalog
+        run: cargo run --locked --quiet -- game profiles --root modules/simcity-4/profiles
+
+      - name: Check SCGL verifier failure handling
+        shell: bash
+        run: |
+          set +e
+          python3 modules/simcity-4/tools/check-scgl-texture-abi.py
+          normal_status=$?
+          python3 -O modules/simcity-4/tools/check-scgl-texture-abi.py
+          optimized_status=$?
+          set -e
+          test "$normal_status" -eq 1
+          test "$optimized_status" -eq 1
