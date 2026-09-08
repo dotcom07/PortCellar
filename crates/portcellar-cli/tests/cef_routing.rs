@@ -26,6 +26,9 @@ fn cli_profile_cef_plan_uses_selected_prefix() {
     let root = std::env::temp_dir().join(format!("portcellar-cli-cef-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();
+    let wine = root.join("wine");
+    fs::write(&wine, b"synthetic-wine").unwrap();
+    fs::write(root.join("winecfg"), b"synthetic-winecfg").unwrap();
 
     let state_root = root.join("state");
     let isaac_prefix = state_root.join("prefixes/isaac-steam");
@@ -44,7 +47,7 @@ fn cli_profile_cef_plan_uses_selected_prefix() {
     let profile = GenericGameProfile::new("123456", "Other Game", "other.exe")
         .with_bottle_name("other-game")
         .with_install_dir_hint("Other Game")
-        .with_wine_engine_path("/usr/bin/true");
+        .with_wine_engine_path(wine);
     let profile_path = root.join("other-profile.toml");
     fs::write(&profile_path, profile.to_profile_toml().unwrap()).unwrap();
 
