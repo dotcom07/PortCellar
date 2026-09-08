@@ -93,3 +93,21 @@ slot `0x6c` under both Python modes.
 Still needed: fresh launch/region/tutorial observations for the exact output.
 The unpatched and patched DLLs were disposable local artifacts, not release
 assets. Historical binary hashes do not prove this patch or reproduce its bytes.
+
+## Follow-up: fresh public-source game run
+
+Later on 2026-09-08, a separate build from public commit
+`183144c2773e1ee47f80d561da524d54789578a6` reached the region menu and Getting
+Started Tutorial after setting `WINE_D3D_CONFIG=renderer=vulkan`. SCGL continued
+to use OpenGL for game rendering. The agent captured both screens and the user
+confirmed the displayed run worked. This supersedes the earlier statement
+that no fresh game session had been run, without extending the claim to long
+sessions, save/load, mods or all graphical behavior.
+
+A standalone DirectDraw probe failed during initialization as 32-bit code with
+the installed Wine 11.10 engine's default OpenGL backend. The same probe passed
+as 64-bit code, and as 32-bit code with the Vulkan backend. No game or SCGL DLL
+was needed to reproduce the failure. This identifies a separate Wine startup
+problem; it does not change the texture-vtable ABI finding above. See the
+[reproduction guide](reproduce.md#fresh-game-run-observation-2026-09-08) for
+build identity, commands, observed limits and the minimal probe.
