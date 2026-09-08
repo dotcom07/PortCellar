@@ -54,11 +54,13 @@ reordered for the 1.1.610 ABI. The aggregate SCGL patch also contains the
 initialization, OpenGL context, buffer-region, display-mode, and diagnostic
 changes documented in [the investigation](docs/investigation.md).
 
-Build the SCGL source from the pinned `upstreams/scgl` revision, apply the
-module patch, and keep diagnostic builds separate from release artifacts. Run
-the checker against both the old and corrected DLLs with normal and optimized
-Python. A binary check proves only the declared ABI slots; it does not prove
-gameplay compatibility.
+The historical build process used the pinned `upstreams/scgl` revision and the
+module patch. A fresh disposable SCGL checkout was built on 2026-09-08 with
+the documented i686 MinGW path, and its DLL passed the checker in normal and
+optimized Python. Follow the [developer reproduction guide](docs/reproduce.md)
+for the commands and the remaining gates before a clean game run can be called
+reproducible. A binary check proves only the declared ABI slots; it does not
+prove gameplay compatibility.
 
 - [Investigation and evidence](docs/investigation.md)
 - [SCGL patch notes](patches/scgl/README.md)

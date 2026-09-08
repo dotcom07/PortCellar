@@ -10,7 +10,7 @@ The detailed investigation is maintained at
 - Host: Apple Silicon macOS
 - Runtime: Wine Staging 11.10
 - Graphics path: MinGW-built SCGL with the 1.1.610 ABI patch
-- Verified scenarios: launch, region menu, and Getting Started Tutorial
+- Historical observed scenarios: launch, region menu, and Getting Started Tutorial
 
 ## Finding
 
@@ -39,8 +39,9 @@ patch by itself.
 
 Build from the pinned SCGL source and apply
 [`simcity4-1.1.610-abi.patch`](../../modules/simcity-4/patches/scgl/simcity4-1.1.610-abi.patch).
-Keep release and diagnostic builds separate. The binary verifier needs no game
-files:
+Keep release and diagnostic builds separate. The complete build and checker
+procedure is in the [developer reproduction guide](../../modules/simcity-4/docs/reproduce.md).
+The binary verifier needs no game files:
 
 ```sh
 python3 modules/simcity-4/tools/check-scgl-texture-abi.py path/to/SCGL.dll
@@ -49,7 +50,8 @@ python3 -O modules/simcity-4/tools/check-scgl-texture-abi.py path/to/SCGL.dll
 
 A passing verifier proves the six declared binary slots only. The historical
 corrected run reached the tutorial and the user confirmed that terrain rendered;
-that is a human observation tied to one runtime configuration.
+that is a human observation tied to one runtime configuration. A fresh game
+rerun for the current source build has not been recorded.
 
 ## Limits
 

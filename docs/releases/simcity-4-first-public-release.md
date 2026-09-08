@@ -1,6 +1,6 @@
 # SimCity 4 first public release plan
 
-Date: 2026-09-07. Status: preparation only; nothing has been published by this
+Date: 2026-09-08. Status: preparation only; nothing has been published by this
 review. This plan complements the [architecture proposal](../architecture/portcellar-plan.md).
 
 ## Release purpose
@@ -27,15 +27,15 @@ The imported SCGL base refers to the pinned upstream revision
 `dc80faec59980da7436e792171e3ce55778f41cd` from
 [nsgomez/scgl](https://github.com/nsgomez/scgl). Its modifications are stored in
 `modules/simcity-4/patches/scgl/simcity4-1.1.610-abi.patch`. The patch, checker,
-and investigation documents are imported into PortCellar. This does not imply
-that a buildable source checkout was initialized or freshly verified here.
+and investigation documents are imported into PortCellar. A fresh build and
+checker regression are now recorded below; no game session was rerun.
 
 | Finding | Evidence class | Publication limit |
 | --- | --- | --- |
 | The game passes scalar mode `1` through byte offset `0x70` | Saved game disassembly and decoded driver table | Specific executable/build |
 | The old SCGL table places the pointer overload there | Old DLL symbol/table inspection | Specific MinGW DLL |
 | The saved fault dereferences address `0x1` in `glTexEnvfv_Exec` | Saved LLDB excerpt and SCGL forwarding code | Supports the affected dispatch failure |
-| Historical old DLL failed; historical corrected DLL passed the six-slot check in ordinary Python | [Dated checker verification below](#checker-verification-record-2026-09-07) | Historical pre-import checker result; no fresh old/new DLL regression has been run with the imported checker |
+| Fresh unpatched DLL failed and patched DLL passed the six-slot check under normal and optimized Python | [Current source/build record](../../modules/simcity-4/docs/reproduce.md) | Toolchain-specific DLL outputs; no game session was rerun |
 | Tutorial terrain was restored and the tutorial ran | Explicit user confirmation recorded in the investigation | Historical human observation, not automated visual verification |
 | Previous access violation was not reproduced after the correction | Historical investigation report | Not proof that no future crash is possible |
 | A diagnostics-enabled run failed during initialization | Historical investigation report | Exclude it from successful runtime results |
@@ -56,6 +56,13 @@ Old SCGL DLL:
 Corrected SCGL DLL:
 f197a05fc36479383b0d1bae3d36e6fe662555d65cf08ed92bf2004ac87a6152
 ```
+
+The fresh 2026-09-08 source regression used CMake 4.1.1, Ninja 1.13.2, and
+GCC 16.1.0 with the i686 MinGW compilers. The unpatched output hash was
+`14b764a92ae0955e62e91eef6ca435150d1bb98901c9042cff9b7be38a09f461`; the
+patched output hash was
+`9adbea7f0a4974b6a41fec34237a8fa1aa8ae18b38e6eeaf7f1feebaff7ab35c`.
+Both were disposable local artifacts and are not release downloads.
 
 The original EXE is not LAA-enabled; the historical runtime profile requests LAA
 on a staged copy. Record both original and executed hashes for release evidence.
@@ -81,14 +88,14 @@ At the affected call, passing mode `1` to the pointer overload can forward
 address `0x1` to `glTexEnvfv`. This supports the narrow ABI explanation. Do not
 turn it into a universal claim about every MinGW/MSVC overload group.
 
-### Two release blockers discovered during review
+### Review notes before publication
 
 **The checker defect is fixed in the imported script.** Critical validation uses
-explicit errors, so Python optimization cannot remove the checks. The script
-still needs a fresh old/new DLL regression under normal and optimized Python
-before it becomes a release gate. Document the PE32/i386, retained-symbol,
-MinGW symbol-name, and vtable-address-point assumptions. Unsupported/stripped
-inputs must fail clearly.
+explicit errors, so Python optimization cannot remove the checks. The fresh
+2026-09-08 old/new DLL regression failed and passed at the expected slot under
+both Python modes. The release record must still document the PE32/i386,
+retained-symbol, MinGW symbol-name, and vtable-address-point assumptions.
+Unsupported/stripped inputs must fail clearly.
 
 **The aggregate patch is larger than the headline fix.** It also includes earlier
 1.1.610 interface changes, legacy context/mode handling, buffer-region behavior,

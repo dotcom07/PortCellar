@@ -82,8 +82,14 @@ material, and satisfy any relinking obligations introduced by linked libraries.
 Keep proprietary game files out of that source bundle. A source URL alone is
 not a complete binary distribution compliance record.
 
-Still needed: a recorded clean build/toolchain configuration, old/new DLL checks
-under normal and optimized Python, and fresh launch/region/tutorial observations
-for the exact output. The old DLL is currently unavailable in this workspace.
-Historical binary hashes do not prove this patch and an unspecified toolchain
-will reproduce those bytes. No new game session was run for this source review.
+On 2026-09-08, a clean disposable checkout at the pinned revision was patched
+and built with CMake 4.1.1, Ninja, and GCC 16.1.0 using the i686 MinGW
+compilers. The output was a PE32 DLL, and the imported checker passed against it
+under both normal and optimized Python. This is fresh source/build evidence;
+the output hash is environment-specific and no new game session was run. A
+separate unpatched checkout produced a PE32 DLL that failed the same checker at
+slot `0x6c` under both Python modes.
+
+Still needed: fresh launch/region/tutorial observations for the exact output.
+The unpatched and patched DLLs were disposable local artifacts, not release
+assets. Historical binary hashes do not prove this patch or reproduce its bytes.
