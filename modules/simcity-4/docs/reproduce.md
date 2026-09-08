@@ -13,6 +13,20 @@ the region menu and Getting Started Tutorial with the WineD3D Vulkan setting
 in section 5. The default WineD3D OpenGL path failed during initialization.
 Screenshots were captured for user review; this is not full gameplay validation.
 
+## Core finding
+
+1. **Symptom:** SimCity 4 1.1.610.0 showed white textures in the Getting Started
+   Tutorial and could terminate while rendering.
+2. **Root cause:** SCGL's C++ virtual-function-table order did not match the
+   MSVC-built game's binary ABI. The MinGW build retained a different order for
+   overloaded methods, so calls could dispatch to the wrong overload.
+3. **Affected slots:** `0x6c`, `0x70`, `0xd8`, `0xdc`, `0xe0`, and `0xe4`.
+
+The six slots cover the affected `TexEnv` and `TexStageCombine` overloads. The
+patch is an aggregate compatibility change, so the slots are checked together
+with its other initialization and renderer changes below. This finding is
+separate from the WineD3D Vulkan workaround described in section 5.
+
 ## 1. Inspect the module
 
 Run from the repository root:
