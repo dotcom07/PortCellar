@@ -6,7 +6,7 @@ A catalog entry means that a module exists, not that the game is compatible.
 
 | Game | Distribution covered | What you will find |
 | --- | --- | --- |
-| [SimCity 4](simcity-4/README.md) | Windows Deluxe 1.1.610.0, standalone | SCGL texture/ABI investigation, source patch, binary checker, and historical region/tutorial observations. |
+| [SimCity 4](simcity-4/README.md) | Windows Deluxe 1.1.610.0; GOG 1.1.641 investigation | SCGL texture/ABI patch and checker, historical 1.1.610 observations, and a controlled 1.1.641 video-mode vtable comparison. |
 | [The Binding of Isaac: Rebirth](binding-of-isaac-rebirth/README.md) | Windows Steam, App ID 250900 | Existing launch workflow, historical gameplay/save observations, and a later failed login precondition. Current compatibility needs reverification. |
 
 Read the linked module before testing: it defines the configuration observed,

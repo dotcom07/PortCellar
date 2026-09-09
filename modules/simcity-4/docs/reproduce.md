@@ -8,6 +8,10 @@ The source and patch checks below are runnable from a fresh clone. The game-run
 steps bind your own installation and Wine engine to a private profile. This
 repository does not distribute either dependency or a built DLL.
 
+For GOG 1.1.641, see the [video-mode ABI investigation](windows-1.1.641.md):
+game call sites, compiled overload mappings, stack cleanup, and a comparison
+changing only the two mode-query vtable entries.
+
 **Bounded game observation:** on 2026-09-08, a fresh public-source build reached
 the region menu and Getting Started Tutorial with the WineD3D Vulkan setting
 in section 5. The default WineD3D OpenGL path failed during initialization.
@@ -137,8 +141,11 @@ mkdir -p "$PORTCELLAR_WINEPREFIX"
 ```
 
 Use a new prefix path for this experiment. Wine can create links to host user
-folders; the `-UserDir` below explicitly puts SC4 user data in the private state
-directory so existing cities and settings are not reused. The runtime stages a
+folders. The `-UserDir` below selects private game data, but the 1.1.641 trace
+showed an earlier read of `Documents/SimCity 4/SimCity 4.cfg`. Inspect the test
+prefix's Documents link after Wine initialization; preserve any host-facing
+link under another name and create a real empty Documents directory before
+launching. Do not rely on `-UserDir` alone for isolation. The runtime stages a
 copy of the installation, adds the new DLL, and applies LAA only to that copy.
 Do not run two sessions against the same prefix or state directory.
 

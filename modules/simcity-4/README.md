@@ -11,6 +11,11 @@ The scenario results below are historical manual observations of the recorded
 configuration, not a fresh verification of a PortCellar package. See the
 [investigation](docs/investigation.md) for attribution and outstanding checks.
 
+The separate [GOG 1.1.641 Tahoe investigation](docs/windows-1.1.641.md)
+isolates a video-mode overload dispatch and stack-cleanup mismatch by exchanging
+only two compiled vtable entries, with bounded rendering observations. The catalog profile
+below still describes 1.1.610; use a distinct private profile for 1.1.641.
+
 ## Verified
 
 - The game launches.
