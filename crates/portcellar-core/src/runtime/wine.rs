@@ -14,7 +14,7 @@ pub fn wine_steam_configure_plans_for(profile: &dyn GameProfile) -> Result<Vec<C
         .wine
         .as_ref()
         .ok_or_else(|| PortCellarError::Message("Wine was not found".to_string()))?;
-    Ok(vec![
+    let mut plans = vec![
         wine_windows_version_plan(wine, &runtime, &profile.runtime_policy().windows_version)?,
         wine_reg_add_plan(
             wine,
@@ -51,7 +51,47 @@ pub fn wine_steam_configure_plans_for(profile: &dyn GameProfile) -> Result<Vec<C
             "MouseThreshold2",
             "0",
         ),
-    ])
+    ];
+    plans.extend(wine_registry_plans(&runtime, profile)?);
+    Ok(plans)
+}
+
+pub(crate) fn wine_registry_plans(
+    runtime: &WineSteamRuntime,
+    profile: &dyn GameProfile,
+) -> Result<Vec<CommandPlan>> {
+    let wine = runtime
+        .wine
+        .as_ref()
+        .ok_or_else(|| PortCellarError::Message("Wine was not found".into()))?;
+    profile
+        .registry_entries()
+        .into_iter()
+        .map(|entry| {
+            entry.validate()?;
+            let (kind, data) = match entry.value {
+                WineRegistryValue::String { data } => ("REG_SZ", data),
+                WineRegistryValue::Dword { data } => ("REG_DWORD", data.to_string()),
+            };
+            Ok(CommandPlan {
+                program: wine.clone(),
+                args: vec![
+                    "reg.exe".into(),
+                    "add".into(),
+                    entry.key.into(),
+                    "/v".into(),
+                    entry.name.into(),
+                    "/t".into(),
+                    kind.into(),
+                    "/d".into(),
+                    data.into(),
+                    "/f".into(),
+                ],
+                envs: wine_env(runtime),
+                current_dir: None,
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn env_flag_enabled(value: &str) -> bool {

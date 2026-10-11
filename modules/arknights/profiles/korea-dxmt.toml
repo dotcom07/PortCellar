@@ -1,0 +1,29 @@
+# Derived from the referenced client's Wine/DXMT policy, not a PortCellar pass.
+format_version = "game-profile-v1"
+app_id = "arknights-korea"
+name = "Arknights Korea Wine/DXMT candidate"
+bottle_name = "arknights-korea"
+windows_exe = "Arknights.exe"
+launch_arguments = ["-logFile", "L:\\unity.log"]
+runtime_profile_version = "arknights-korea-dxmt-candidate-1"
+wine_windows_version = "win10"
+graphics_backend = "dxmt"
+steam_integration = "none"
+capabilities = ["direct3d11", "video-playback", "audio"]
+
+[runtime_environment]
+WINEDLLOVERRIDES = "dcomp,mscoree,mshtml="
+WINEMSYNC = "1"
+DXMT_SHADER_CACHE = "1"
+DXMT_LOG_LEVEL = "error"
+ARKNIGHTS_RUNTIME_AUDIO_FOLLOW_DEFAULT_OUTPUT = "1"
+
+[[registry_entries]]
+key = 'HKCU\Software\Wine\WineDbg'
+name = "ShowCrashDialog"
+value = { type = "dword", data = 0 }
+
+[[registry_entries]]
+key = 'HKCU\Software\Wine\Mac Driver'
+name = "UsePreciseScrolling"
+value = { type = "string", data = "n" }

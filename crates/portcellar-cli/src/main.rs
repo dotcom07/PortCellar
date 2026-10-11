@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 
 mod game_bottle;
 mod game_evidence;
+mod game_installation;
 mod game_installer;
 mod game_modules;
 mod game_observer;
@@ -65,6 +66,9 @@ fn run(args: Vec<OsString>) -> Result<()> {
         [area, cmd, rest @ ..] if area == "isaac" && cmd == "play" => isaac_play(rest),
         [area, cmd, rest @ ..] if area == "isaac" && cmd == "launch" => launch(rest),
         [area, cmd, rest @ ..] if area == "game" && cmd == "profiles" => game_profiles(rest),
+        [area, cmd, rest @ ..] if area == "game" && cmd == "installation" => {
+            game_installation::installation(rest)
+        }
         [area, cmd, rest @ ..] if area == "game" && (cmd == "modules" || cmd == "module") => {
             game_modules::inspect(rest, cmd == "module")
         }
@@ -143,6 +147,15 @@ fn print_help() {
         "  portcellar isaac launch [--mode steam|native|direct|wine-steam|wine-direct] [--dry-run] [--detach] [--wait] [--wait-login] [--legacy-login] [--capture-wine-log] [--login-timeout-seconds N] [--launch-timeout-seconds N] [--stable-seconds N]"
     );
     println!("  portcellar game profiles [--root PATH]");
+    println!("  portcellar game installation create --root DIR --id ID --module MODULE --variant VARIANT --profile PROFILE --source-root DIR --wine FILE [--module-root DIR] [--dxmt-root DIR]");
+    println!(
+        "  portcellar game installation plan --root DIR [--installer EXE] [--installer-arg VALUE]"
+    );
+    println!("  portcellar game installation prepare --root DIR");
+    println!("  portcellar game installation launch|recover --root DIR [--timeout-seconds N]");
+    println!("  portcellar game installation install --root DIR --installer EXE [--installer-arg VALUE] [--timeout-seconds N]");
+    println!("  portcellar game installation replace --root DIR --target RELATIVE --artifact FILE --original-sha256 HASH|absent --replacement-sha256 HASH");
+    println!("  portcellar game installation restore --root DIR --target RELATIVE");
     println!("  portcellar game modules [--root PATH]");
     println!("  portcellar game module [--root PATH] --id MODULE");
     println!("  portcellar game evidence [--app-id APPID] [--root PATH]");

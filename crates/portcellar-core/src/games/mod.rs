@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 
 mod catalog;
 mod generic;
+mod registry;
+pub(crate) use generic::public_module_profile;
+pub use registry::{WineRegistryEntry, WineRegistryValue};
 mod isaac;
 mod module;
 
@@ -233,6 +236,10 @@ pub trait GameProfile {
 
     fn runtime_environment(&self) -> BTreeMap<String, String> {
         BTreeMap::new()
+    }
+
+    fn registry_entries(&self) -> Vec<WineRegistryEntry> {
+        Vec::new()
     }
 
     fn runtime_artifacts(&self) -> Vec<GameRuntimeArtifact> {

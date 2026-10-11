@@ -3,10 +3,13 @@
 ## Current state
 
 This repository contains the imported PortCellar runtime foundation and the
-SimCity 4 and Isaac modules under review. The implementation currently has two
+SimCity 4, Isaac and candidate Arknights modules under review. The implementation currently has two
 crates, `portcellar-cli` and `portcellar-core`, a read-only module catalog, and
-foundation CI. The larger proposed crate split, managed execution ownership,
-Steam fingerprint invalidation, and turnkey distribution are not implemented.
+foundation CI. The managed standalone route now owns new installations with
+foreground execution, locks and guarded file changes; read
+`docs/runtime/managed-installations.md` for its scope. The larger crate split,
+shared/legacy Steam ownership, Steam fingerprint invalidation and turnkey
+distribution are not implemented.
 Do not describe proposed commands, schemas, packages, or verification results as
 implemented features.
 

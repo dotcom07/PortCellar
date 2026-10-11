@@ -1,7 +1,7 @@
 # Foundation decisions
 
 Date: 2026-09-07. Status: selected direction with partial foundation
-implementation; managed runtime guarantees are not implemented. Current baseline
+implementation; only the managed standalone subset described below is implemented. Historical baseline
 `0fb07a1`; design history was reviewed against foundation commit `45da0cd`.
 This document refines the [architecture proposal](portcellar-plan.md) where
 specified below. The two existing crates remain the implementation boundary.
@@ -9,16 +9,27 @@ specified below. The two existing crates remain the implementation boundary.
 ## Implementation status
 
 The signal-termination fix and foundation CI are implemented. The read-only
-module catalog now consumes SC4 and Isaac descriptors using the contract below.
+module catalog now consumes SC4, Isaac and candidate Arknights descriptors using the contract below.
 Launch planning no longer materializes stages; execution explicitly prepares
 them. Existing stages requiring refresh/rebuild are retained and refused, and
 absent stages are built and validated in a unique sibling before activation.
 Synthetic tests cover these paths; they do not establish gameplay compatibility.
 
-Managed installation identity, resource locks, supervised lifetime, replacement
-journals/save reconciliation, and Steam fingerprint/recovery guards remain
-unimplemented. In particular, staging path checks and rename are not a shared
-ownership or concurrency boundary. Legacy execution retains that limitation.
+A [managed standalone subset](../runtime/managed-installations.md) now creates
+new installation-owned prefixes/stages, captures profiles and executable/payload
+digests, holds OS locks through foreground Wine-server quiescence, retains
+interrupted-session markers, and performs exact file replacement/restoration.
+Its private format is `portcellar-managed-standalone-v1`: prefix and stage paths
+are derived within a newly created root. It does not enroll existing prefixes
+or implement the wider binding format proposed below. Typed `registry_entries`
+now extend profiles with string/DWORD settings; both legacy configuration plans
+and managed preparation consume them.
+
+Shared-prefix/legacy ownership migration, detached supervision, stage replacement
+journals/save reconciliation and Steam fingerprint/recovery guards remain
+unimplemented. Staging checks and rename alone are not a concurrency boundary.
+Legacy execution retains that limitation on unmanaged resources and refuses
+known managed resources rather than silently bypassing their owner.
 
 ## Baseline gaps and selected behavior
 

@@ -11,6 +11,7 @@ pub fn kill_wine_steam_processes() -> Result<Vec<u32>> {
 }
 
 pub(crate) fn kill_wine_steam_processes_for_prefix(prefix: &Path) -> Result<Vec<u32>> {
+    super::reject_managed_path(prefix)?;
     let ps_args = ["-axo".into(), "pid=,pgid=,command=".into()];
     let Some(output) = command_stdout("/bin/ps", &ps_args) else {
         return Ok(Vec::new());
@@ -127,6 +128,11 @@ pub fn wine_steam_session_reset_plan() -> Result<SteamSessionResetPlan> {
 pub fn apply_steam_session_reset(
     plan: &SteamSessionResetPlan,
 ) -> Result<Vec<SteamSessionResetTarget>> {
+    super::reject_managed_path(&plan.backup_dir)?;
+    for target in &plan.targets {
+        super::reject_managed_path(&target.source)?;
+        super::reject_managed_path(&target.backup)?;
+    }
     let mut moved = Vec::new();
 
     for target in &plan.targets {

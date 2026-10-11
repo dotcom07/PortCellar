@@ -23,6 +23,15 @@ pub fn wine_steam_cef_patch_plan_for(profile: &dyn GameProfile) -> Result<SteamC
 }
 
 pub fn apply_steam_cef_patch(plan: &SteamCefPatchPlan) -> Result<SteamCefPatchResult> {
+    super::reject_managed_path(&plan.steam_dir)?;
+    for path in &plan.htmlcache_locks {
+        super::reject_managed_path(path)?;
+    }
+    for target in &plan.cef_targets {
+        for path in [&target.cef_dir, &target.target, &target.real] {
+            super::reject_managed_path(path)?;
+        }
+    }
     let wrappers = build_steamwebhelper_wrappers()?;
     let mut patched_targets = Vec::new();
     let mut removed_locks = Vec::new();

@@ -1,0 +1,16 @@
+format_version = "portcellar-module-v1"
+id = "arknights"
+name = "Arknights"
+revision = 1
+
+[[variants]]
+id = "windows-korea"
+name = "Windows Korea (Yostar; source-derived candidate)"
+
+[[variants.profiles]]
+id = "installer-baseline"
+path = "profiles/korea-installer.toml"
+
+[[variants.profiles]]
+id = "wine-dxmt"
+path = "profiles/korea-dxmt.toml"

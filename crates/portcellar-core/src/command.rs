@@ -42,6 +42,7 @@ impl CommandPlan {
 }
 
 pub fn run_plan(plan: &CommandPlan) -> Result<i32> {
+    reject_managed_plan(plan)?;
     let mut command = Command::new(&plan.program);
     command.args(&plan.args);
     if let Some(current_dir) = &plan.current_dir {
@@ -63,6 +64,7 @@ pub fn run_plan(plan: &CommandPlan) -> Result<i32> {
 }
 
 pub fn run_plan_detached(plan: &CommandPlan) -> Result<u32> {
+    reject_managed_plan(plan)?;
     let mut command = Command::new(&plan.program);
     command.args(&plan.args);
     if let Some(current_dir) = &plan.current_dir {
@@ -82,6 +84,8 @@ pub fn run_plan_detached(plan: &CommandPlan) -> Result<u32> {
 }
 
 pub fn run_plan_detached_with_log(plan: &CommandPlan, log_path: &Path) -> Result<u32> {
+    reject_managed_plan(plan)?;
+    crate::runtime::reject_managed_path(log_path)?;
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -118,6 +122,31 @@ pub(crate) fn shell_quote(value: &str) -> String {
     }
 
     format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn reject_managed_plan(plan: &CommandPlan) -> Result<()> {
+    if let Some(prefix) = plan
+        .envs
+        .get("WINEPREFIX")
+        .cloned()
+        .or_else(|| std::env::var("WINEPREFIX").ok())
+    {
+        crate::runtime::reject_managed_path(Path::new(&prefix))?;
+    }
+    for path in plan
+        .current_dir
+        .iter()
+        .chain(std::iter::once(&plan.program))
+    {
+        crate::runtime::reject_managed_path(path)?;
+    }
+    for argument in &plan.args {
+        let path = Path::new(argument);
+        if path.is_absolute() {
+            crate::runtime::reject_managed_path(path)?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -1,0 +1,11 @@
+# Candidate for inspecting the official installer with a locally supplied Wine.
+# No installer, launcher UI, login, or gameplay result is established.
+format_version = "game-profile-v1"
+app_id = "arknights-korea"
+name = "Arknights Korea installer baseline"
+bottle_name = "arknights-korea"
+windows_exe = "Arknights.exe"
+runtime_profile_version = "arknights-korea-installer-candidate-1"
+wine_windows_version = "win10"
+graphics_backend = "auto"
+steam_integration = "none"

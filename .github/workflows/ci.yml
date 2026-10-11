@@ -37,6 +37,11 @@ jobs:
           cargo run --locked --quiet -- game modules --root modules
           cargo run --locked --quiet -- game module --root modules --id binding-of-isaac-rebirth
 
+      - name: Check the Korean publisher downloader without network or game files
+        run: |
+          python3 -m unittest discover -s modules/arknights/tools -p 'test_*.py'
+          python3 -O -m unittest discover -s modules/arknights/tools -p 'test_*.py'
+
       - name: Check SCGL verifier failure handling
         shell: bash
         run: |

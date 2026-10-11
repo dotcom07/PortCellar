@@ -18,6 +18,16 @@ pub fn prepare_game_runtime_stage(profile: &dyn GameProfile) -> Result<Option<Ga
         return Ok(None);
     };
     let source_root = local_game_root(profile)?;
+    super::installation::reject_managed_path(&stage.root)?;
+    prepare_game_runtime_stage_at(profile, &source_root, &stage)?;
+    Ok(Some(stage))
+}
+
+pub(crate) fn prepare_game_runtime_stage_at(
+    profile: &dyn GameProfile,
+    source_root: &Path,
+    stage: &GameRuntimeStage,
+) -> Result<()> {
     reject_symlink_components(&stage.game_root)?;
     let destination = absolute_path(&stage.game_root)?;
     if directory_contains(&source_root, &destination)?
@@ -30,7 +40,7 @@ pub fn prepare_game_runtime_stage(profile: &dyn GameProfile) -> Result<Option<Ga
     validate_artifacts(profile, &source_root)?;
 
     if stage_is_ready(&stage, profile, &source_root) && !env_flag("PORTCELLAR_STAGE_REFRESH") {
-        return Ok(Some(stage));
+        return Ok(());
     }
 
     if stage.game_root.try_exists()? {
@@ -61,8 +71,7 @@ pub fn prepare_game_runtime_stage(profile: &dyn GameProfile) -> Result<Option<Ga
                 "stage appeared during preparation; refusing replacement".into(),
             ));
         }
-        // Managed resource locking and external-process ownership are separate
-        // work. This refuses existing copies; it is not a concurrency boundary.
+        // The installation owner locks managed calls; legacy calls only refuse replacement.
         fs::rename(&pending.game_root, &stage.game_root)?;
         Ok(())
     })();
@@ -72,7 +81,7 @@ pub fn prepare_game_runtime_stage(profile: &dyn GameProfile) -> Result<Option<Ga
             pending.game_root.display()
         )));
     }
-    Ok(Some(stage))
+    Ok(())
 }
 
 fn unique_pending_stage(stage: &GameRuntimeStage) -> Result<GameRuntimeStage> {
@@ -292,7 +301,12 @@ fn apply_binary_patches(profile: &dyn GameProfile, stage_root: &Path) -> Result<
 
 fn stage_is_ready(stage: &GameRuntimeStage, profile: &dyn GameProfile, source_root: &Path) -> bool {
     if reject_symlink_components(&stage.game_root.join(STAGE_MARKER)).is_err()
-        || reject_symlink_components(&stage.game_root.join(profile.windows_exe())).is_err()
+        || reject_symlink_components(
+            &stage
+                .game_root
+                .join(normalize_relative_path(profile.windows_exe())),
+        )
+        .is_err()
     {
         return false;
     }
@@ -309,7 +323,11 @@ fn stage_is_ready(stage: &GameRuntimeStage, profile: &dyn GameProfile, source_ro
     {
         return false;
     }
-    if !stage.game_root.join(profile.windows_exe()).is_file() {
+    if !stage
+        .game_root
+        .join(normalize_relative_path(profile.windows_exe()))
+        .is_file()
+    {
         return false;
     }
     let artifacts_ready = profile.runtime_artifacts().iter().all(|artifact| {

@@ -7,10 +7,15 @@ modules: configuration, patches, reproduction steps, and evidence of exactly
 what was tested. The intended workflows cover both Windows Steam games and
 separately installed Windows games.
 
-**Current state: experimental runtime and read-only module catalog.** The existing
+**Current state: experimental runtime, managed standalone execution, and read-only module catalog.** The existing
 two-crate runtime is available as `portcellar-cli` and `portcellar-core`. Game
 modules collect profiles, investigation notes, and available patches and checks.
 There is no turnkey player download yet.
+
+The [managed standalone route](docs/runtime/managed-installations.md) owns a new
+installation's prefix, copied game and recovery data, with foreground execution,
+OS locking and exact file-change checks. Existing-prefix enrollment, shared
+Steam ownership and detached supervision are not implemented.
 
 ## Start here
 
@@ -44,9 +49,10 @@ to use a different state directory.
 Module commands validate descriptors and referenced profiles; they do not launch
 or install a module. Existing direct-profile and game-specific commands remain available.
 Launch plans do not materialize game copies. Execution reuses a ready staged copy
-and refuses refresh/replacement of an existing copy to preserve saves. Managed
-prefix ownership, concurrent mutation guards, and Steam update fingerprinting
-remain unfinished; see the [implementation status](docs/architecture/foundation-decisions.md#implementation-status).
+and refuses refresh/replacement of an existing copy to preserve saves. Ownership
+and mutation guards cover the managed standalone route. Their broader migration
+to legacy/Steam workflows and Steam update fingerprinting remain unfinished;
+see the [implementation status](docs/architecture/foundation-decisions.md#implementation-status).
 
 PortCellar will not include games, Steam account data, or proprietary CrossOver
 components. Runtime packages and game modules will have separate versions and

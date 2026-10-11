@@ -29,11 +29,16 @@ and immediate crate split. It preserves the original document as background.
 
 ## What actually exists
 
-The current repository is the imported PortCellar foundation at baseline
-`0fb07a1`. It contains the two crates, a read-only module catalog, the SimCity 4
+The imported PortCellar foundation at historical baseline
+`0fb07a1` contained the two crates, a read-only module catalog, the SimCity 4
 and Isaac descriptors, the imported SCGL source patch and checker, and foundation
 CI. The catalog validates descriptors and referenced profiles; it does not
 install or launch a module.
+
+The later [managed standalone subset](../runtime/managed-installations.md) adds
+new installation ownership and foreground execution within those same crates,
+along with the source-derived Arknights candidate module. The baseline and gaps
+below remain historical context; foundation decisions describe current scope.
 
 The following older observations describe the source review that preceded the
 import. They are retained as dated provenance, not as the current file inventory.

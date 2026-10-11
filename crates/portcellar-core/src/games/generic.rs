@@ -1,6 +1,7 @@
 use super::{
     validate_binary_patch_metadata, GameBinaryPatch, GameCapability, GameProfile,
     GameRuntimeArtifact, GraphicsBackend, RuntimeDependency, SteamCefPolicy, SteamIntegration,
+    WineRegistryEntry,
 };
 use crate::{PortCellarError, Result};
 use std::collections::{BTreeMap, BTreeSet};
@@ -12,7 +13,7 @@ use serde::{Deserialize, Serialize};
 pub const GENERIC_GAME_PROFILE_FORMAT_VERSION: &str = "game-profile-v1";
 
 // The public module boundary is strict; legacy direct profiles remain permissive.
-pub(super) fn public_module_profile(text: &str) -> Result<GenericGameProfile> {
+pub(crate) fn public_module_profile(text: &str) -> Result<GenericGameProfile> {
     let value: toml::Table = toml::from_str(text)
         .map_err(|error| PortCellarError::Message(format!("invalid module profile: {error}")))?;
     reject_unknown_fields(
@@ -37,6 +38,7 @@ pub(super) fn public_module_profile(text: &str) -> Result<GenericGameProfile> {
             "steam_cef_policy",
             "runtime_options",
             "runtime_environment",
+            "registry_entries",
             "runtime_artifacts",
             "binary_patches",
             "capabilities",
@@ -110,6 +112,8 @@ pub struct GenericGameProfileDocument {
     pub runtime_options: BTreeMap<String, String>,
     #[serde(default)]
     pub runtime_environment: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub registry_entries: Vec<WineRegistryEntry>,
     #[serde(default)]
     pub runtime_artifacts: Vec<GameRuntimeArtifact>,
     #[serde(default)]
@@ -140,6 +144,7 @@ pub struct GenericGameProfile {
     steam_cef_policy: SteamCefPolicy,
     runtime_options: BTreeMap<String, String>,
     runtime_environment: BTreeMap<String, String>,
+    registry_entries: Vec<WineRegistryEntry>,
     runtime_artifacts: Vec<GameRuntimeArtifact>,
     binary_patches: Vec<GameBinaryPatch>,
     capabilities: BTreeSet<GameCapability>,
@@ -172,6 +177,7 @@ impl GenericGameProfile {
             steam_cef_policy: SteamCefPolicy::WineDefault,
             runtime_options: BTreeMap::new(),
             runtime_environment: BTreeMap::new(),
+            registry_entries: Vec::new(),
             runtime_artifacts: Vec::new(),
             binary_patches: Vec::new(),
             capabilities: BTreeSet::new(),
@@ -304,6 +310,7 @@ impl GenericGameProfile {
             steam_cef_policy: self.steam_cef_policy,
             runtime_options: self.runtime_options.clone(),
             runtime_environment: self.runtime_environment.clone(),
+            registry_entries: self.registry_entries.clone(),
             runtime_artifacts: self.runtime_artifacts.clone(),
             binary_patches: self.binary_patches.clone(),
             capabilities: self.capabilities.clone(),
@@ -370,6 +377,9 @@ impl GenericGameProfile {
         for patch in &document.binary_patches {
             validate_binary_patch_metadata(patch).map_err(PortCellarError::Message)?;
         }
+        for entry in &document.registry_entries {
+            entry.validate()?;
+        }
 
         let mut profile = Self::new(document.app_id, document.name, document.windows_exe)
             .with_bottle_name(document.bottle_name)
@@ -378,6 +388,7 @@ impl GenericGameProfile {
             .with_graphics_backend(document.graphics_backend)
             .with_steam_integration(document.steam_integration)
             .with_steam_cef_policy(document.steam_cef_policy);
+        profile.registry_entries = document.registry_entries;
         if let Some(value) = document.windows_depot_id {
             profile = profile.with_windows_depot_id(value);
         }
@@ -521,6 +532,10 @@ impl GameProfile for GenericGameProfile {
 
     fn runtime_environment(&self) -> BTreeMap<String, String> {
         self.runtime_environment.clone()
+    }
+
+    fn registry_entries(&self) -> Vec<WineRegistryEntry> {
+        self.registry_entries.clone()
     }
 
     fn runtime_artifacts(&self) -> Vec<GameRuntimeArtifact> {

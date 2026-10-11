@@ -33,10 +33,9 @@ pub use games::{
     GameModuleVariant, GameProfile, GameRuntimeArtifact, GameRuntimePolicy, GenericGameProfile,
     GenericGameProfileCatalog, GenericGameProfileCatalogEntry, GenericGameProfileDocument,
     GraphicsBackend, IsaacProfile, RuntimeDependency, SteamCefPolicy, SteamIntegration,
-    GENERIC_GAME_PROFILE_FORMAT_VERSION,
+    WineRegistryEntry, WineRegistryValue, GENERIC_GAME_PROFILE_FORMAT_VERSION,
 };
 pub use inspect::{doctor_report, inspect_game_runtime};
-pub use runtime::GameRuntimeStage;
 pub use runtime::{
     apply_game_runtime_profile, apply_isaac_runtime_profile, apply_steam_cef_patch,
     apply_steam_session_reset, game_installer_plan, game_launch_plan, game_launch_plan_with_stage,
@@ -50,6 +49,7 @@ pub use runtime::{
     wine_steam_login_plan_for, wine_steam_session_reset_plan, wine_steam_stop_plan,
     write_game_compatibility_evidence, write_game_smoke_evidence,
 };
+pub use runtime::{GameRuntimeStage, InstallationRequest, ManagedInstallation};
 pub use state::state_root;
 pub use types::{
     BottleMutationPlan, BottleRollbackPlan, BottleSnapshotPlan, CommandPlan, CompatibilityStatus,

@@ -53,6 +53,7 @@ pub fn apply_game_runtime_profile(profile: &dyn GameProfile) -> Result<GameRunti
 }
 
 fn apply_runtime_profile_plan(plan: &GameRuntimeProfilePlan) -> Result<()> {
+    super::reject_managed_path(&plan.options_path)?;
     if let Some(parent) = plan.options_path.parent() {
         fs::create_dir_all(parent)?;
     }

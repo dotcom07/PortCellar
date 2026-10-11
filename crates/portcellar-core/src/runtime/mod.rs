@@ -2,7 +2,9 @@ use crate::*;
 mod compatibility;
 mod components;
 mod dependencies;
+mod installation;
 mod launch;
+mod managed_files;
 mod observe;
 mod preflight;
 mod profile;
@@ -22,6 +24,8 @@ pub use dependencies::{
     wine_bottle_mutation_plan, wine_bottle_rollback_plan, wine_bottle_snapshot_plan,
     wine_dependency_plans_for,
 };
+pub(crate) use installation::reject_managed_path;
+pub use installation::{InstallationRequest, ManagedInstallation};
 pub use launch::{
     game_installer_plan, game_launch_plan, game_launch_plan_with_stage, isaac_launch_plan,
     wine_steam_install_plan, wine_steam_login_plan, wine_steam_login_plan_for,

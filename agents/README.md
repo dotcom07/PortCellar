@@ -5,8 +5,9 @@ instructions and proposed tool contracts, not private execution state. Start wit
 the repository-root [AGENTS.md](../AGENTS.md).
 
 The execution interface below is a design target. The imported CLI implements
-only part of it. In particular, managed execution locks and the structured tool
-contract are not implemented. Read the
+only part of it. The [managed standalone route](../docs/runtime/managed-installations.md)
+provides foreground ownership and locks for new installations. Shared/legacy
+Steam ownership and the structured tool contract are not implemented. Read the
 [foundation decisions](../docs/architecture/foundation-decisions.md) before
 extending modules or mutation operations.
 
